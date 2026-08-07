@@ -190,3 +190,94 @@ describe.skipIf(DISABLED)("usage ingest", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 });
+
+describe.skipIf(DISABLED)("ingest CAS under concurrency (#66)", () => {
+  async function authoritativeBinding(userId: string) {
+    const { quota } = await setupQuota(userId, "counter");
+    const binding = await db.usageBinding.create({
+      data: { userId, quotaId: quota.id, source: "local_agent", sourceKey: "c:req", collectorId: "codex" },
+    });
+    await db.usageQuota.update({
+      where: { id: quota.id },
+      data: { authoritativeBindingId: binding.id },
+    });
+    return { quota, binding };
+  }
+
+  function reading(bindingId: string, usedValue: string, capturedAt: string) {
+    return UsageReadingSchema.parse({
+      bindingId,
+      kind: "counter",
+      metric: "requests",
+      unit: "req",
+      usedValue,
+      capturedAt,
+    });
+  }
+
+  it("an older reading committed later must not overwrite the newer value", async () => {
+    const user = await setupUser();
+    const { quota, binding } = await authoritativeBinding(user.id);
+
+    // Both start from the same pre-state, exactly like two devices reporting at
+    // once. Under check-then-act both decide "newer" and the later commit wins.
+    await Promise.all([
+      ingestReadings(user.id, [reading(binding.id, "90", "2026-01-01T09:00:00Z")]),
+      ingestReadings(user.id, [reading(binding.id, "10", "2026-01-01T01:00:00Z")]),
+    ]);
+
+    const after = await db.usageQuota.findUniqueOrThrow({ where: { id: quota.id } });
+    expect(Number(after.usedValue)).toBe(90);
+    expect(after.valueCapturedAt?.toISOString()).toBe("2026-01-01T09:00:00.000Z");
+    // both readings are still preserved as history
+    expect(await db.usageSnapshot.count({ where: { bindingId: binding.id } })).toBe(2);
+  });
+
+  it("rejects an older reading arriving after a newer one, in either order", async () => {
+    const user = await setupUser();
+    const { quota, binding } = await authoritativeBinding(user.id);
+
+    await ingestReadings(user.id, [reading(binding.id, "70", "2026-02-01T12:00:00Z")]);
+    await ingestReadings(user.id, [reading(binding.id, "20", "2026-02-01T03:00:00Z")]);
+
+    const after = await db.usageQuota.findUniqueOrThrow({ where: { id: quota.id } });
+    expect(Number(after.usedValue)).toBe(70);
+  });
+
+  it("is idempotent for a retried identical report", async () => {
+    const user = await setupUser();
+    const { quota, binding } = await authoritativeBinding(user.id);
+    const same = reading(binding.id, "42", "2026-03-01T00:00:00Z");
+
+    const first = await ingestReadings(user.id, [same]);
+    const retry = await ingestReadings(user.id, [same]);
+
+    expect(first.accepted).toBe(1);
+    // a retry must converge, not be rejected
+    expect(retry.accepted).toBe(1);
+    expect(await db.usageSnapshot.count({ where: { bindingId: binding.id } })).toBe(1);
+    const after = await db.usageQuota.findUniqueOrThrow({ where: { id: quota.id } });
+    expect(Number(after.usedValue)).toBe(42);
+  });
+
+  it("does not let a non-authoritative binding move the current value", async () => {
+    const user = await setupUser();
+    const { quota, binding } = await authoritativeBinding(user.id);
+    const shadow = await db.usageBinding.create({
+      data: {
+        userId: user.id,
+        quotaId: quota.id,
+        source: "provider",
+        sourceKey: "p:req",
+      },
+    });
+
+    await ingestReadings(user.id, [reading(binding.id, "55", "2026-04-01T00:00:00Z")]);
+    // newer timestamp, but from a binding that is not authoritative
+    await ingestReadings(user.id, [reading(shadow.id, "999", "2026-04-02T00:00:00Z")]);
+
+    const after = await db.usageQuota.findUniqueOrThrow({ where: { id: quota.id } });
+    expect(Number(after.usedValue)).toBe(55);
+    expect(await db.usageSnapshot.count({ where: { bindingId: shadow.id } })).toBe(1);
+  });
+});

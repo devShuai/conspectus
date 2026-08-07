@@ -62,58 +62,78 @@ async function ingestOne(userId: string, reading: UsageReading, now: Date): Prom
   }
 
   await db.$transaction(async (tx) => {
-    const snapshot = await tx.usageSnapshot.create({
-      data: {
-        userId,
-        quotaId: quota.id,
-        bindingId: binding.id,
-        capturedAt,
-        kindAtCapture: quota.kind,
-        unitAtCapture: quota.unit,
-        value,
-        limitValueAtCapture:
-          reading.limitValue !== undefined
-            ? toDecimal(reading.limitValue)
-            : quota.limitValue,
-        periodStart:
-          reading.periodStart !== undefined
-            ? new Date(reading.periodStart)
-            : quota.periodStart,
-        periodEnd:
-          reading.periodEnd !== undefined ? new Date(reading.periodEnd) : quota.periodEnd,
-      },
+    // Idempotent append: a retried report must reuse the existing snapshot
+    // rather than fail, and skipDuplicates maps to ON CONFLICT DO NOTHING so a
+    // duplicate cannot abort the transaction (same trap as #65).
+    await tx.usageSnapshot.createMany({
+      data: [
+        {
+          userId,
+          quotaId: quota.id,
+          bindingId: binding.id,
+          deviceId: null,
+          capturedAt,
+          kindAtCapture: quota.kind,
+          unitAtCapture: quota.unit,
+          value,
+          limitValueAtCapture:
+            reading.limitValue !== undefined
+              ? toDecimal(reading.limitValue)
+              : quota.limitValue,
+          periodStart:
+            reading.periodStart !== undefined
+              ? new Date(reading.periodStart)
+              : quota.periodStart,
+          periodEnd:
+            reading.periodEnd !== undefined ? new Date(reading.periodEnd) : quota.periodEnd,
+        },
+      ],
+      skipDuplicates: true,
     });
+    const snapshot = await tx.usageSnapshot.findFirst({
+      where: { bindingId: binding.id, deviceId: null, capturedAt },
+      select: { id: true },
+    });
+    if (!snapshot) throw new IngestError("snapshot_not_persisted");
 
-    // only the authoritative binding updates current value
-    if (quota.authoritativeBindingId !== binding.id) {
-      return;
+    // Only fields the reading actually carries are written; falling back to the
+    // values read outside the transaction would let a stale limit overwrite a
+    // concurrent change.
+    const nextValues: Record<string, unknown> = {
+      valueCapturedAt: capturedAt,
+      valueSnapshotId: snapshot.id,
+      lastSyncedAt: now,
+      lastSyncStatus: "ok",
+      lastSyncError: null,
+    };
+    if (reading.usedValue !== undefined) nextValues.usedValue = toDecimal(reading.usedValue);
+    if (reading.remainingValue !== undefined) {
+      nextValues.remainingValue = toDecimal(reading.remainingValue);
     }
+    if (reading.limitValue !== undefined) nextValues.limitValue = toDecimal(reading.limitValue);
 
-    const currentCapturedAt = quota.valueCapturedAt;
-    const newer =
-      currentCapturedAt === null ||
-      capturedAt > currentCapturedAt ||
-      (capturedAt.getTime() === currentCapturedAt.getTime() &&
-        snapshot.id > (quota.valueSnapshotId ?? ""));
-    if (!newer) return;
-
-    await tx.usageQuota.update({
-      where: { id: quota.id },
-      data: {
-        usedValue: reading.usedValue !== undefined ? toDecimal(reading.usedValue) : quota.usedValue,
-        remainingValue:
-          reading.remainingValue !== undefined
-            ? toDecimal(reading.remainingValue)
-            : quota.remainingValue,
-        limitValue:
-          reading.limitValue !== undefined ? toDecimal(reading.limitValue) : quota.limitValue,
-        valueCapturedAt: capturedAt,
-        valueSnapshotId: snapshot.id,
-        lastSyncedAt: now,
-        lastSyncStatus: "ok",
-        lastSyncError: null,
+    // Database CAS (design §7.4 / R8-USAGE-CAS). Comparing in JS against a
+    // quota read *outside* this transaction is check-then-act: two concurrent
+    // reports both see the same old valueCapturedAt, both decide "newer", and
+    // the later commit wins even when it carries the older reading. Authority
+    // is part of the condition for the same reason -- it was read outside too,
+    // so an in-flight authority switch must not be overwritten.
+    await tx.usageQuota.updateMany({
+      where: {
+        id: quota.id,
+        authoritativeBindingId: binding.id,
+        OR: [
+          { valueCapturedAt: null },
+          { valueCapturedAt: { lt: capturedAt } },
+          // deterministic tie-break on identical capturedAt
+          { valueCapturedAt: capturedAt, valueSnapshotId: { lt: snapshot.id } },
+          { valueCapturedAt: capturedAt, valueSnapshotId: null },
+        ],
       },
+      data: nextValues,
     });
+    // count === 0 is the normal "a newer reading already won" outcome, or this
+    // binding is not authoritative: the snapshot is still recorded either way.
   });
 }
 
