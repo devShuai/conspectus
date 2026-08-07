@@ -35,11 +35,12 @@ describe.skipIf(DISABLED)("backchannel replay + purge integration", () => {
     });
 
     // First processing inserts replay row (simulating transaction that also deletes sid).
+    const replayJti = `jti-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     await db.$transaction(async (tx) => {
       await tx.backchannelLogoutReplay.create({
         data: {
           issuer: "https://certus.devshuai.com",
-          jti: "jti-123",
+          jti: replayJti,
           expiresAt: new Date(Date.now() + 60_000),
         },
       });
@@ -52,7 +53,7 @@ describe.skipIf(DISABLED)("backchannel replay + purge integration", () => {
     const conflict = await db.backchannelLogoutReplay.create({
       data: {
         issuer: "https://certus.devshuai.com",
-        jti: "jti-123",
+        jti: replayJti,
         expiresAt: new Date(Date.now() + 60_000),
       },
     }).catch(() => null);
@@ -111,17 +112,18 @@ describe.skipIf(DISABLED)("backchannel replay + purge integration", () => {
       userId: user.id,
       authMethod: "certus",
     });
+    const purgePrefix = `purge-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
     await db.backchannelLogoutReplay.create({
       data: {
         issuer: "issuer",
-        jti: "expired-jti",
+        jti: `${purgePrefix}-expired`,
         expiresAt: new Date(Date.now() - 1000),
       },
     });
     await db.backchannelLogoutReplay.create({
       data: {
         issuer: "issuer",
-        jti: "alive-jti",
+        jti: `${purgePrefix}-alive`,
         expiresAt: new Date(Date.now() + 60_000),
       },
     });
@@ -132,10 +134,10 @@ describe.skipIf(DISABLED)("backchannel replay + purge integration", () => {
     expect(await db.session.findUnique({ where: { id: alive.sessionId } })).not.toBeNull();
 
     const jtis = await db.backchannelLogoutReplay.findMany({
-      where: { issuer: "issuer" },
+      where: { issuer: "issuer", jti: { startsWith: purgePrefix } },
       select: { jti: true },
     });
-    expect(jtis.map((r) => r.jti)).toEqual(["alive-jti"]);
+    expect(jtis.map((r) => r.jti)).toEqual([`${purgePrefix}-alive`]);
 
     await db.session.deleteMany({ where: { userId: user.id } });
     await db.user.delete({ where: { id: user.id } });
