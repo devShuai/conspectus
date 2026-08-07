@@ -100,6 +100,8 @@ model User {
   reauthTransactions ReauthTransaction[]
   subscriptions Subscription[]
   vendors    Vendor[]
+  passwordResetTokens PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
 
   @@index([status])
   @@index([certusLinkStatus])
@@ -141,6 +143,37 @@ model BackchannelLogoutReplay {
   @@id([issuer, jti])
   @@index([expiresAt])
   @@map("backchannel_logout_replays")
+}
+
+model PasswordResetToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash Bytes    @unique
+  expiresAt DateTime @db.Timestamptz
+  usedAt    DateTime? @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("password_reset_tokens")
+}
+
+model EmailVerificationToken {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  email     String   @db.Text
+  tokenHash Bytes    @unique
+  expiresAt DateTime @db.Timestamptz
+  usedAt    DateTime? @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("email_verification_tokens")
 }
 
 model ReauthTransaction {
