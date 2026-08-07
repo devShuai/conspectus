@@ -1,0 +1,13 @@
+{
+  "crons": [
+    { "path": "/api/cron/notification-dispatch", "schedule": "* * * * *" },
+    { "path": "/api/cron/renewals", "schedule": "0 * * * *" },
+    { "path": "/api/cron/usage-sync", "schedule": "0 * * * *" },
+    { "path": "/api/cron/notification-scan", "schedule": "15 * * * *" },
+    { "path": "/api/cron/identity-status", "schedule": "30 * * * *" },
+    { "path": "/api/cron/purge", "schedule": "0 4 * * *" },
+    { "path": "/api/cron/fx", "schedule": "0 6 * * *" },
+    { "path": "/api/cron/certus-capabilities", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/rebase", "schedule": "*/5 * * * *" }
+  ]
+}
