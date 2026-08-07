@@ -169,3 +169,38 @@ code {
   color: white;
   margin-left: 6px;
 }
+
+.usage-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.usage-card {
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, Canvas 70%, transparent);
+}
+
+.usage-card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.usage-metric {
+  font-weight: 700;
+}
+
+.usage-meta {
+  margin-top: 10px;
+  font-size: 12px;
+  opacity: 0.65;
+}
+
+.usage-bar {
+  margin-top: 10px;
+}
