@@ -98,3 +98,74 @@ code {
     color: #14161f;
   }
 }
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 12px;
+  margin: 20px 0 32px;
+}
+
+.stat-card {
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 16px;
+  background: color-mix(in srgb, Canvas 70%, transparent);
+}
+
+.stat-label {
+  font-size: 13px;
+  opacity: 0.65;
+}
+
+.stat-value {
+  margin-top: 6px;
+  font-size: 26px;
+  font-weight: 750;
+  letter-spacing: -0.02em;
+}
+
+.stat-sub {
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.6;
+}
+
+.stat-warn {
+  font-size: 12px;
+  color: #c4553c;
+}
+
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 15px;
+}
+
+.data-table th,
+.data-table td {
+  padding: 10px 12px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+  text-align: left;
+}
+
+.data-table th {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  opacity: 0.6;
+}
+
+.tag {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: color-mix(in srgb, currentColor 10%, transparent);
+}
+
+.tag.warn {
+  background: #c4553c;
+  color: white;
+  margin-left: 6px;
+}
