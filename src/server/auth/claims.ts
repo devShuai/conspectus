@@ -1,0 +1,48 @@
+import { createHash } from "node:crypto";
+
+import type { AuthConfig } from "./config";
+
+export type OIDCClaims = Record<string, unknown>;
+
+export class OIDCClaimsError extends Error {
+  constructor(public readonly code: "invalid_claims") {
+    super(code);
+    this.name = "OIDCClaimsError";
+  }
+}
+
+export function localUserIdFromClaims(
+  claims: OIDCClaims,
+  config: AuthConfig,
+  expectedNonce: string,
+): string {
+  const subject = stringClaim(claims.sub);
+  const issuer = stringClaim(claims.iss);
+  const nonce = stringClaim(claims.nonce);
+  const audience = claims.aud;
+
+  if (
+    !subject ||
+    issuer !== config.issuerIdentifier ||
+    nonce !== expectedNonce ||
+    !audienceContains(audience, config.clientId)
+  ) {
+    throw new OIDCClaimsError("invalid_claims");
+  }
+
+  const digest = createHash("sha256")
+    .update(issuer, "utf8")
+    .update("\0", "utf8")
+    .update(subject, "utf8")
+    .digest("base64url");
+  return `usr_${digest}`;
+}
+
+function stringClaim(value: unknown): string | null {
+  return typeof value === "string" && value.length > 0 ? value : null;
+}
+
+function audienceContains(value: unknown, clientId: string): boolean {
+  return value === clientId ||
+    (Array.isArray(value) && value.every((item) => typeof item === "string") && value.includes(clientId));
+}

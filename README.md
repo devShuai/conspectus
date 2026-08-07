@@ -15,11 +15,13 @@ conspectus 拉丁本义"一览、总览"。图形：四格总览网格，右上�
 
 ## 状态
 
-🚧 **设计阶段。** 应用代码尚未初始化，当前仓库只有设计文档与品牌资产。
+🚧 **M0 风险验证阶段。** 最小 Next.js 工程与 certus OIDC + 自有不透明 Session PoC 已完成真实 E2E；尚无可发布的业务功能。
 
 完整设计见 **[docs/design.md](docs/design.md)** —— 产品定位、数据模型、模块详设、里程碑与风险。
 
 设计审阅意见见 **[docs/design-review.md](docs/design-review.md)**（十二轮复审台账；当前实现基线 **v0.5.1**，下一步 **M0**）。
+
+M0 认证 PoC 的复现步骤与安全边界见 **[docs/m0-auth-poc.md](docs/m0-auth-poc.md)**。
 
 ## 计划中的能力
 
