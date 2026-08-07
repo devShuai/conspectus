@@ -165,13 +165,16 @@ async function attemptSend(
       data: event?.payload ?? {},
     };
     if (channel.type === "webhook" && channel.destination) {
+      const { resolveWebhookTarget } = await import("./webhook-safe");
+      const target = await resolveWebhookTarget(channel.destination);
+      if (!target) return false;
       const secret = channel.secretCipher
         ? decryptCredential(channel.secretCipher, undefined as never)
         : null;
       const signature = secret
         ? await hmacSha256(secret, JSON.stringify(payload))
         : "unsigned";
-      const response = await fetch(channel.destination, {
+      const response = await fetch(target, {
         method: "POST",
         headers: {
           "content-type": "application/json",
@@ -179,6 +182,7 @@ async function attemptSend(
           "x-conspectus-signature": signature,
         },
         body: JSON.stringify(payload),
+        redirect: "manual",
         signal: AbortSignal.timeout(10_000),
       });
       return response.ok;
