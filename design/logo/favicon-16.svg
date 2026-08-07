@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="16" height="16" role="img" aria-label="conspectus 订阅资产">
+  <rect width="64" height="64" rx="12" fill="#14161F"></rect>
+  <rect x="7" y="7" width="22" height="22" rx="6" fill="#F2F3F7"></rect>
+  <rect x="35" y="7" width="22" height="22" rx="6" fill="#E07A5F"></rect>
+  <rect x="7" y="35" width="22" height="22" rx="6" fill="#F2F3F7"></rect>
+  <rect x="35" y="35" width="22" height="22" rx="6" fill="#F2F3F7" opacity=".45"></rect>
+</svg>
