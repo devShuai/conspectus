@@ -20,6 +20,12 @@ export default async function ProtectedPage() {
       <p className="muted">
         页面没有读取或保存 ID Token、access token、邮箱及其他 OIDC profile。
       </p>
+      <p className="muted">
+        M0 探针（仅脱敏）：
+        <a href="/api/m0/claim-evidence">claim-evidence</a>
+        {" · "}
+        <a href="/api/m0/user-status">user-status</a>
+      </p>
       <form action="/api/auth/logout" method="post">
         <button className="button secondary" type="submit">注销 Session</button>
       </form>

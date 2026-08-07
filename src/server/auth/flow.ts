@@ -1,5 +1,9 @@
 import { timingSafeEqual } from "node:crypto";
 
+import {
+  storeClaimEvidenceForSession,
+  summarizeIdTokenClaims,
+} from "./claim-evidence";
 import { localUserIdFromClaims } from "./claims";
 import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
@@ -102,6 +106,8 @@ export async function completeOIDCLogin(
     throw new OIDCFlowError("invalid_claims", { cause });
   }
   const { token, session } = createAppSession(userId, options.now);
+  // M0: keep redacted claim evidence in process memory for contract probes.
+  storeClaimEvidenceForSession(token, summarizeIdTokenClaims(claims));
   return {
     sessionToken: token,
     userId,
