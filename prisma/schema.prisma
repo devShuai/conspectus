@@ -111,6 +111,13 @@ model User {
   usageSnapshots UsageSnapshot[]
   usageCycleSummaries UsageCycleSummary[]
   providerConnections ProviderConnection[]
+  notificationRules NotificationRule[]
+  notificationChannels NotificationChannel[]
+  notificationEvents NotificationEvent[]
+  notificationDeliveries NotificationDelivery[]
+  notificationDigests NotificationDigest[]
+  notificationArmStates NotificationArmState[]
+  priceChanges PriceChange[]
 
   @@index([status])
   @@index([certusLinkStatus])
@@ -249,6 +256,7 @@ model Subscription {
   vendor Vendor? @relation(fields: [vendorId], references: [id])
   billingRecords BillingRecord[]
   usageQuotas UsageQuota[]
+  priceChanges PriceChange[]
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
 
   @@index([userId, status])
@@ -547,4 +555,194 @@ model ProviderConnection {
   @@index([userId, providerId])
   @@index([status, nextSyncAt])
   @@map("provider_connections")
+}
+
+enum NotificationRuleType {
+  renewal_due
+  trial_ending
+  usage_threshold
+  balance_low
+  collector_stale
+  price_change
+  connection_failed
+}
+
+enum NotificationChannelType {
+  email
+  webhook
+}
+
+enum NotificationChannelMode {
+  individual
+  daily_digest
+}
+
+enum NotificationEventStatus {
+  pending
+}
+
+enum NotificationDeliveryStatus {
+  pending
+  sending
+  sent
+  failed
+  blocked
+  canceled
+}
+
+enum NotificationDigestStatus {
+  pending
+  sending
+  sent
+  failed
+  canceled
+}
+
+model NotificationRule {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  type       NotificationRuleType
+  config     Json
+  subscriptionId String? @db.Uuid
+  enabled    Boolean @default(true)
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  events NotificationEvent[]
+  armStates NotificationArmState[]
+
+  @@index([userId, enabled])
+  @@map("notification_rules")
+}
+
+model NotificationChannel {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  type       NotificationChannelType
+  mode       NotificationChannelMode @default(individual)
+  destination String? @db.Text
+  secretCipher Bytes?
+  verifiedAt DateTime? @db.Timestamptz
+  enabled    Boolean @default(true)
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deliveries NotificationDelivery[]
+  digests NotificationDigest[]
+
+  @@index([userId, enabled])
+  @@map("notification_channels")
+}
+
+model NotificationEvent {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  ruleId     String @db.Uuid
+  subjectType String @db.Text
+  subjectId  String @db.Uuid
+  dedupeKey  String @db.Text
+  payload    Json
+  occurredAt DateTime @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rule NotificationRule @relation(fields: [ruleId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@unique([userId, ruleId, subjectType, subjectId, dedupeKey])
+  @@index([userId, occurredAt])
+  @@map("notification_events")
+}
+
+model NotificationDelivery {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  eventId    String @db.Uuid
+  channelId  String @db.Uuid
+  digestId   String? @db.Uuid
+  scheduledAt DateTime @db.Timestamptz
+  status     NotificationDeliveryStatus @default(pending)
+  attempts   Int @default(0)
+  nextAttemptAt DateTime? @db.Timestamptz
+  leaseUntil DateTime? @db.Timestamptz
+  leaseToken String? @db.Uuid
+  lastError  String? @db.Text
+  sentAt     DateTime? @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  event NotificationEvent @relation(fields: [eventId], references: [id])
+  channel NotificationChannel @relation(fields: [channelId], references: [id])
+  digest NotificationDigest? @relation(fields: [digestId], references: [id])
+
+  @@unique([eventId, channelId])
+  @@index([userId, status, nextAttemptAt])
+  @@map("notification_deliveries")
+}
+
+model NotificationDigest {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  channelId  String @db.Uuid
+  localDate  DateTime @db.Date
+  scheduledAt DateTime @db.Timestamptz
+  status     NotificationDigestStatus @default(pending)
+  attempts   Int @default(0)
+  nextAttemptAt DateTime? @db.Timestamptz
+  leaseUntil DateTime? @db.Timestamptz
+  leaseToken String? @db.Uuid
+  lastError  String? @db.Text
+  sentAt     DateTime? @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel NotificationChannel @relation(fields: [channelId], references: [id])
+  deliveries NotificationDelivery[]
+
+  @@unique([channelId, localDate])
+  @@index([userId, status, scheduledAt])
+  @@map("notification_digests")
+}
+
+model NotificationArmState {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  ruleId     String @db.Uuid
+  subjectType String @db.Text
+  subjectId  String @db.Uuid
+  armedAt    DateTime @db.Timestamptz
+  armKey     String @db.Text
+  clearedAt  DateTime? @db.Timestamptz
+  meta       Json?
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  rule NotificationRule @relation(fields: [ruleId], references: [id])
+
+  @@unique([ruleId, subjectType, subjectId])
+  @@index([userId])
+  @@map("notification_arm_states")
+}
+
+model PriceChange {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  subscriptionId String @db.Uuid
+  oldPrice   Decimal @db.Decimal(14, 2)
+  newPrice   Decimal @db.Decimal(14, 2)
+  currency   String @db.Char(3)
+  effectiveAt DateTime @db.Date
+  detectedBy String @default("user") @db.Text
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+
+  @@index([userId, subscriptionId])
+  @@map("price_changes")
 }
