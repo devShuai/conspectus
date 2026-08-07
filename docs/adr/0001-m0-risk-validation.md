@@ -49,7 +49,7 @@
 | Next.js | 16.3.0 |
 | openid-client | 6.8.4 |
 | Claude Code | 2.1.150（本机 OAuth 请求被拒，待重新认证） |
-| Codex CLI | 2026-08-08 临时获取官方 `@openai/codex`，App Server E2E GO |
+| Codex CLI | 官方 `@openai/codex` 0.147.0，App Server E2E GO |
 | certus issuer | https://certus.devshuai.com |
 | 测试 | 31 tests（提交 d85a74a 时点） |
 

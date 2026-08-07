@@ -134,7 +134,7 @@ node .\scripts\m0-probe-codex-app-server.mjs cmd.exe /d /s /c npx --yes @openai/
 - `account/rateLimits/read`：单桶与 `rateLimitsByLimitId` 多桶；每个窗口含 `usedPercent`、`windowDurationMins`、`resetsAt`。
 - `account/usage/read`：token activity `summary` 与可选 `dailyUsageBuckets`。
 
-本轮通过临时官方 `@openai/codex` CLI 完成真实 E2E：初始化成功；两个只读请求均成功；窗口百分比、周期和重置时间类型/范围通过；summary 与 daily bucket schema 通过。探针只输出布尔验证结果。
+本轮通过临时官方 `@openai/codex` `0.147.0` 完成真实 E2E：初始化成功；两个只读请求均成功；窗口百分比、周期和重置时间类型/范围通过；summary 与 daily bucket schema 通过。探针只输出布尔验证结果。
 
 官方当前仍把 `codex app-server` 命令标为 experimental/unsupported for production，因此结论是 **E2E GO，但只能作为版本门控的本地 collector**：启动失败、方法缺失、schema 漂移或未认证时降级为 unavailable + 通道 C，不能让采集失败影响业务 Session 或其他订阅。
 
