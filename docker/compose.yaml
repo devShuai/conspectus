@@ -1,0 +1,54 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: conspectus
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env}
+      POSTGRES_DB: conspectus
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U conspectus"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    environment:
+      DATABASE_URL: postgres://conspectus:${POSTGRES_PASSWORD}@db:5432/conspectus?sslmode=disable
+      APP_URL: ${APP_URL:?set in .env}
+      CERTUS_ISSUER: ${CERTUS_ISSUER:?set in .env}
+      CERTUS_CLIENT_ID: ${CERTUS_CLIENT_ID}
+      CERTUS_CLIENT_SECRET: ${CERTUS_CLIENT_SECRET:?set in .env}
+      AUTH_MODE: certus
+      CREDENTIAL_ENC_KEYS: ${CREDENTIAL_ENC_KEYS:?set in .env}
+      ACTIVE_CREDENTIAL_KEY_ID: ${ACTIVE_CREDENTIAL_KEY_ID}
+      CRON_SECRET: ${CRON_SECRET:?set in .env}
+      DEPLOY_PROBE_SECRET: ${DEPLOY_PROBE_SECRET:?set in .env}
+    ports:
+      - "3000:3000"
+    depends_on:
+      db:
+        condition: service_healthy
+
+  cron:
+    image: curlimages/curl:latest
+    environment:
+      CRON_SECRET: ${CRON_SECRET}
+    volumes:
+      - ./cron-jobs.sh:/cron-jobs.sh:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        while true; do
+          /bin/sh /cron-jobs.sh http://app:3000 "$$CRON_SECRET"
+          sleep 60
+        done
+    depends_on:
+      - app
+
+volumes:
+  pgdata:

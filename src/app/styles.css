@@ -204,3 +204,64 @@ code {
 .usage-bar {
   margin-top: 10px;
 }
+
+.app-layout {
+  min-height: 100vh;
+  padding-bottom: 64px;
+}
+
+.app-nav {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  border-top: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  background: color-mix(in srgb, Canvas 96%, transparent);
+  backdrop-filter: blur(8px);
+}
+
+.app-nav-inner {
+  display: flex;
+  justify-content: space-around;
+  max-width: 720px;
+  margin: 0 auto;
+}
+
+.app-nav-item {
+  min-height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 16px;
+  font-size: 14px;
+  font-weight: 600;
+  text-decoration: none;
+  color: inherit;
+  opacity: 0.65;
+}
+
+.app-nav-item:active {
+  opacity: 1;
+}
+
+@media (min-width: 768px) {
+  .app-nav {
+    top: 0;
+    bottom: auto;
+    border-top: none;
+    border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  }
+
+  .app-layout {
+    padding-bottom: 0;
+    padding-top: 64px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation: none !important;
+    transition: none !important;
+  }
+}
