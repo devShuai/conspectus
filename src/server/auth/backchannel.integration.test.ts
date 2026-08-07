@@ -1,11 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { runPurge } from "./purge.js";
+import { runPurge } from "./purge";
 import {
   createPersistentSession,
   SESSION_ABSOLUTE_TTL_MS,
-} from "./session-db.js";
+} from "./session-db";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

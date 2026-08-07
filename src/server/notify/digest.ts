@@ -1,6 +1,6 @@
 import { db } from "@/server/db";
 import { identityGateOk } from "@/server/auth/identity-status";
-import { resolveWebhookTarget } from "./webhook-safe.js";
+import { resolveWebhookTarget } from "./webhook-safe";
 
 export const DIGEST_RETRY_MS = [60_000, 300_000, 1_800_000];
 const MAX_ATTEMPTS = DIGEST_RETRY_MS.length;

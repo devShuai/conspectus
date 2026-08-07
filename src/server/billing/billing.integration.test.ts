@@ -5,7 +5,7 @@ import {
   confirmPendingCharge,
   recordPaidCharge,
   recordRefund,
-} from "./billing.js";
+} from "./billing";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

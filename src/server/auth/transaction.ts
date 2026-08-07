@@ -1,4 +1,4 @@
-import { HashedTokenStore } from "./opaque-store.js";
+import { HashedTokenStore } from "./opaque-store";
 
 export const OIDC_TRANSACTION_TTL_MS = 10 * 60 * 1000;
 

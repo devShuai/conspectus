@@ -1,5 +1,5 @@
-import { loadAuthConfig, type AuthConfig } from "./config.js";
-import { loadCredentialKeyring } from "./crypto.js";
+import { loadAuthConfig, type AuthConfig } from "./config";
+import { loadCredentialKeyring } from "./crypto";
 
 export interface StartupConfig {
   auth: AuthConfig;

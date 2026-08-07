@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { isSupportedCurrency } from "./fx.js";
+import { isSupportedCurrency } from "./fx";
 
 describe("fx module", () => {
   it("marks supported currencies", () => {

@@ -11,7 +11,7 @@ import {
   TenantError,
   updatePrivateVendor,
   updateSubscription,
-} from "./subscriptions.js";
+} from "./subscriptions";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { createManualQuota, closeQuotaCycle, idleCandidates } from "./manual.js";
+import { createManualQuota, closeQuotaCycle, idleCandidates } from "./manual";
 import { runPurge } from "@/server/auth/purge";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;

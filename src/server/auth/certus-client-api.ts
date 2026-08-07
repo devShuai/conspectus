@@ -1,5 +1,5 @@
-import type { AuthConfig } from "./config.js";
-import { fingerprint } from "./device-introspection.js";
+import type { AuthConfig } from "./config";
+import { fingerprint } from "./device-introspection";
 
 export interface CapabilitiesEvidence {
   httpStatus: number;

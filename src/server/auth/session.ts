@@ -1,4 +1,4 @@
-import { HashedTokenStore } from "./opaque-store.js";
+import { HashedTokenStore } from "./opaque-store";
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 

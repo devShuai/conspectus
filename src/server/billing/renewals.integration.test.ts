@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { runRenewals } from "./renewals.js";
+import { runRenewals } from "./renewals";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

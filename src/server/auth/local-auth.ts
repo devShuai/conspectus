@@ -1,12 +1,12 @@
 import { db } from "@/server/db";
-import { normalizeEmail } from "./email.js";
+import { normalizeEmail } from "./email";
 import {
   assertStrongPassword,
   hashPassword,
   verifyPassword,
-} from "./password.js";
-import { createPersistentSession } from "./session-db.js";
-import { loadCredentialKeyring } from "./crypto.js";
+} from "./password";
+import { createPersistentSession } from "./session-db";
+import { loadCredentialKeyring } from "./crypto";
 
 export const MAX_FAILED_LOGINS = 5;
 export const LOCK_DURATION_MS = 15 * 60 * 1000;

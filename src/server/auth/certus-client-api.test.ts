@@ -5,7 +5,7 @@ import {
   evaluateUserStatusContract,
   type CapabilitiesEvidence,
   type UserStatusEvidence,
-} from "./certus-client-api.js";
+} from "./certus-client-api";
 
 describe("evaluateCapabilities", () => {
   it("goes when schema and features match design", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { csvEscape, csvLine } from "./csv.js";
+import { csvEscape, csvLine } from "./csv";
 
 describe("csv escaping", () => {
   it("quotes fields with separators and newlines", () => {

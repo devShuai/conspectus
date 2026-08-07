@@ -1,6 +1,6 @@
-import { createAppSession, deleteAppSession, findAppSession, type AppSession } from "./session.js";
-import type { SessionWriter } from "./flow.js";
-import { tokenDigest } from "./opaque-store.js";
+import { createAppSession, deleteAppSession, findAppSession, type AppSession } from "./session";
+import type { SessionWriter } from "./flow";
+import { tokenDigest } from "./opaque-store";
 
 /**
  * In-memory SessionWriter used by unit tests and the M0 PoC path.

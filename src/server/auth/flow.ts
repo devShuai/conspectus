@@ -3,14 +3,14 @@ import { timingSafeEqual } from "node:crypto";
 import {
   storeClaimEvidenceForSession,
   summarizeIdTokenClaims,
-} from "./claim-evidence.js";
-import { localUserIdFromClaims, type OIDCClaims } from "./claims.js";
-import { loadAuthConfig, type AuthConfig } from "./config.js";
-import { certusOIDCProvider, type OIDCProvider } from "./provider.js";
+} from "./claim-evidence";
+import { localUserIdFromClaims, type OIDCClaims } from "./claims";
+import { loadAuthConfig, type AuthConfig } from "./config";
+import { certusOIDCProvider, type OIDCProvider } from "./provider";
 import {
   consumeOIDCTransaction,
   createOIDCTransaction,
-} from "./transaction.js";
+} from "./transaction";
 
 export type OIDCFlowErrorCode =
   | "invalid_callback_url"

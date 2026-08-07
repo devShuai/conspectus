@@ -1,6 +1,6 @@
 import { createRemoteJWKSet, jwtVerify, errors as joseErrors } from "jose";
 
-import type { AuthConfig } from "./config.js";
+import type { AuthConfig } from "./config";
 
 export const BACKCHANNEL_LOGOUT_EVENT =
   "http://schemas.openid.net/event/backchannel-logout";

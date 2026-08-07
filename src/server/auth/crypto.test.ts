@@ -4,7 +4,7 @@ import {
   decryptCredential,
   encryptCredential,
   loadCredentialKeyring,
-} from "./crypto.js";
+} from "./crypto";
 
 const key = Buffer.alloc(32, 7).toString("base64");
 const env = {

@@ -1,6 +1,6 @@
-import type { OIDCClaims } from "./claims.js";
-import { fingerprint } from "./device-introspection.js";
-import { tokenDigest } from "./opaque-store.js";
+import type { OIDCClaims } from "./claims";
+import { fingerprint } from "./device-introspection";
+import { tokenDigest } from "./opaque-store";
 
 export interface RedactedClaimEvidence {
   capturedAt: number;

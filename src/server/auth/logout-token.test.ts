@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { logoutReplayExpiry } from "./logout-token.js";
+import { logoutReplayExpiry } from "./logout-token";
 
 describe("logout replay expiry", () => {
   it("extends token exp by grace", () => {

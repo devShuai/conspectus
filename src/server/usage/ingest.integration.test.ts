@@ -1,9 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { ingestReadings } from "./ingest.js";
-import { switchAuthoritativeBinding } from "./authority.js";
-import { UsageReadingSchema } from "./reading.js";
+import { ingestReadings } from "./ingest";
+import { switchAuthoritativeBinding } from "./authority";
+import { UsageReadingSchema } from "./reading";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

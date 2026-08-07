@@ -7,7 +7,7 @@ import {
   resetClaimEvidenceForTests,
   storeClaimEvidenceForSession,
   summarizeIdTokenClaims,
-} from "./claim-evidence.js";
+} from "./claim-evidence";
 
 describe("summarizeIdTokenClaims", () => {
   it("records boolean email_verified without exposing email", () => {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { nextSyncDelayMs } from "./sync.js";
+import { nextSyncDelayMs } from "./sync";
 
 describe("sync backoff", () => {
   it("steps 1h → 4h → 12h and caps", () => {

@@ -1,7 +1,7 @@
 import { db } from "@/server/db";
 import type { UsageKind, UsageResetCycle } from "@prisma/client";
-import { ingestReadings } from "./ingest.js";
-import { UsageReadingSchema } from "./reading.js";
+import { ingestReadings } from "./ingest";
+import { UsageReadingSchema } from "./reading";
 
 export class ManualUsageError extends Error {
   constructor(public readonly reason: string) {

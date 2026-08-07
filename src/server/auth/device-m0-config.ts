@@ -1,4 +1,4 @@
-import { loadAuthConfig, type AuthConfig } from "./config.js";
+import { loadAuthConfig, type AuthConfig } from "./config";
 
 export interface DeviceM0Config {
   auth: AuthConfig;

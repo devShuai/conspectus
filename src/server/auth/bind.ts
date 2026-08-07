@@ -1,6 +1,6 @@
 import { db } from "@/server/db";
-import { hashPassword } from "./password.js";
-import type { AuthConfig } from "./config.js";
+import { hashPassword } from "./password";
+import type { AuthConfig } from "./config";
 
 export class BindError extends Error {
   constructor(

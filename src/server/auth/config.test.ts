@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { loadAuthConfig } from "./config.js";
+import { loadAuthConfig } from "./config";
 
 const baseEnvironment = {
   NODE_ENV: "test",

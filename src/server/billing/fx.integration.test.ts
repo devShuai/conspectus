@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { backfillMissingProjections, countMissingProjections } from "./fx.js";
+import { backfillMissingProjections, countMissingProjections } from "./fx";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

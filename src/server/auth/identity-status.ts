@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
 import { db } from "@/server/db";
-import { fetchUserStatus } from "./certus-client-api.js";
-import type { AuthConfig } from "./config.js";
+import { fetchUserStatus } from "./certus-client-api";
+import type { AuthConfig } from "./config";
 
 export const IDENTITY_STATUS_TTL_MS = 60 * 60 * 1000;
 export const IDENTITY_STATUS_MAX_STALE_MS = 24 * 60 * 60 * 1000;

@@ -1,12 +1,12 @@
 import { db } from "@/server/db";
 
-import type { SessionWriter } from "./flow.js";
-import { upsertCertusUser } from "./jit-user.js";
+import type { SessionWriter } from "./flow";
+import { upsertCertusUser } from "./jit-user";
 import {
   createPersistentSession,
   deletePersistentSession,
   findPersistentSession,
-} from "./session-db.js";
+} from "./session-db";
 
 /**
  * Production SessionWriter: JIT certus user + persistent DB Session in one
