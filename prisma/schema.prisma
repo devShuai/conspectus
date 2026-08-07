@@ -102,6 +102,10 @@ model User {
   vendors    Vendor[]
   passwordResetTokens PasswordResetToken[]
   emailVerificationTokens EmailVerificationToken[]
+  billingRecords BillingRecord[]
+  billingConversions BillingConversion[]
+  paymentMethods PaymentMethod[]
+  currencyRebaseJobs CurrencyRebaseJob[]
 
   @@index([status])
   @@index([certusLinkStatus])
@@ -238,9 +242,136 @@ model Subscription {
 
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
   vendor Vendor? @relation(fields: [vendorId], references: [id])
+  billingRecords BillingRecord[]
+  paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
 
   @@index([userId, status])
   @@index([userId, nextBillingAt])
   @@index([userId, vendorId])
   @@map("subscriptions")
+}
+
+enum BillingRecordType {
+  charge
+  refund
+}
+
+enum BillingRecordStatus {
+  paid
+  pending
+  failed
+  void
+}
+
+enum BillingRecordSource {
+  manual
+  email
+  csv
+  system
+}
+
+model BillingRecord {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  subscriptionId String @db.Uuid
+  amount     Decimal @db.Decimal(14, 2)
+  currency   String @db.Char(3)
+  recordType BillingRecordType
+  originalRecordId String? @db.Uuid
+  billedAt   DateTime @db.Date
+  periodStart DateTime? @db.Date
+  periodEnd  DateTime? @db.Date
+  status     BillingRecordStatus
+  source     BillingRecordSource
+  externalRef String? @db.Text
+  occurrenceKey String? @unique @db.Text
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscription Subscription @relation(fields: [subscriptionId], references: [id])
+  originalRecord BillingRecord? @relation("BillingAdjustment", fields: [originalRecordId], references: [id])
+  adjustments BillingRecord[] @relation("BillingAdjustment")
+  conversions BillingConversion[]
+
+  @@unique([userId, externalRef])
+  @@index([userId, subscriptionId, recordType])
+  @@index([userId, billedAt])
+  @@index([subscriptionId, occurrenceKey])
+  @@map("billing_records")
+}
+
+model BillingConversion {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  billingRecordId String @db.Uuid
+  baseCurrency String @db.Char(3)
+  signedAmountInBase Decimal @db.Decimal(14, 2)
+  fxRate     Decimal @db.Decimal(18, 8)
+  fxDate     DateTime @db.Date
+  rateSource String @default("provider") @db.Text
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  billingRecord BillingRecord @relation(fields: [billingRecordId], references: [id])
+
+  @@unique([billingRecordId, baseCurrency])
+  @@index([userId, baseCurrency])
+  @@map("billing_conversions")
+}
+
+enum PaymentMethodKind {
+  credit_card
+  debit_card
+  alipay
+  wechat
+  paypal
+  other
+}
+
+model PaymentMethod {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @db.Uuid
+  label     String @db.Text
+  kind      PaymentMethodKind
+  last4     String? @db.Char(4)
+  expiresAt DateTime? @db.Date
+  notes     String? @db.Text
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@index([userId])
+  @@map("payment_methods")
+}
+
+model ExchangeRate {
+  date   DateTime @db.Date
+  base   String   @db.Char(3)
+  quote  String   @db.Char(3)
+  rate   Decimal  @db.Decimal(18, 8)
+
+  @@id([date, base, quote])
+  @@map("exchange_rates")
+}
+
+model CurrencyRebaseJob {
+  id        String @id @default(uuid()) @db.Uuid
+  userId    String @db.Uuid
+  fromCurrency String @db.Char(3)
+  toCurrency String @db.Char(3)
+  status    String @default("pending") @db.Text
+  totalCount Int @default(0)
+  doneCount Int @default(0)
+  lastError String? @db.Text
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, status])
+  @@index([status])
+  @@map("currency_rebase_jobs")
 }
