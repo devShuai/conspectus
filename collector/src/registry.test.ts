@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
-import { listCollectors } from "./collectors/registry";
-import type { UsageReading } from "./types";
+import { listCollectors } from "./collectors/registry.js";
+import type { UsageReading } from "./types.js";
 
 describe("collector registry", () => {
   it("starts empty and validates reading shape", () => {
