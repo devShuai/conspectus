@@ -9,7 +9,7 @@ export default async function AppLayout({
   children,
 }: Readonly<{ children: React.ReactNode }>) {
   const session = await currentAppSession();
-  if (!session) redirect("/");
+  if (!session) redirect("/login");
 
   return (
     <div className="app-layout">

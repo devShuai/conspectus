@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 
 export default async function DashboardPage() {
   const session = await currentAppSession();
-  if (!session) redirect("/");
+  if (!session) redirect("/login");
 
   const [subs, stats] = await Promise.all([
     listSubscriptions(session.userId),
