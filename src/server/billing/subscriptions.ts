@@ -88,11 +88,11 @@ function validateSubscriptionInput(
   ) {
     throw new TenantError("invalid_input", "anchorDay must be between 1 and 31");
   }
+  // One-way only (design §6.2, #63): a trial must carry trialEndsAt, but a
+  // converted/expired subscription keeps it as the historical record of when
+  // the trial ended -- it also anchors the first billing occurrenceKey.
   if (input.status === "trial" && !input.trialEndsAt) {
     throw new TenantError("invalid_input", "trial requires trialEndsAt");
-  }
-  if (input.status !== "trial" && input.trialEndsAt) {
-    throw new TenantError("invalid_input", "trialEndsAt is only valid for trial status");
   }
 }
 
