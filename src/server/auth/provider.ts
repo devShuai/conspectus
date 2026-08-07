@@ -5,6 +5,7 @@ import * as oidc from "openid-client";
 import type { OIDCClaims } from "./claims";
 import type { AuthConfig } from "./config";
 import type { OIDCTransaction } from "./transaction";
+import type { OIDCTokenResult } from "./flow";
 
 export interface RequestSecurity {
   state: string;
@@ -23,7 +24,7 @@ export interface OIDCProvider {
     config: AuthConfig,
     currentUrl: URL,
     transaction: OIDCTransaction,
-  ): Promise<OIDCClaims>;
+  ): Promise<OIDCTokenResult>;
 }
 
 const configurationCache = new Map<string, Promise<oidc.Configuration>>();
@@ -63,7 +64,12 @@ export const certusOIDCProvider: OIDCProvider = {
     if (!claims) {
       throw new Error("OIDC token response did not contain ID Token claims");
     }
-    return claims;
+    return {
+      claims,
+      refreshToken:
+        typeof tokens.refresh_token === "string" ? tokens.refresh_token : undefined,
+      idToken: typeof tokens.id_token === "string" ? tokens.id_token : undefined,
+    };
   },
 };
 

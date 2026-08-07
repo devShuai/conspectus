@@ -1,9 +1,13 @@
 import { cookies } from "next/headers";
 
 import { SESSION_COOKIE_NAME } from "./cookies";
-import { findAppSession, type AppSession } from "./session";
+import { dbSessionWriter } from "./db-flow";
 
-export async function currentAppSession(): Promise<AppSession | null> {
+export interface CurrentSession {
+  userId: string;
+}
+
+export async function currentAppSession(): Promise<CurrentSession | null> {
   const cookieStore = await cookies();
-  return findAppSession(cookieStore.get(SESSION_COOKIE_NAME)?.value);
+  return dbSessionWriter.find(cookieStore.get(SESSION_COOKIE_NAME)?.value);
 }

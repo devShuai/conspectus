@@ -4,10 +4,9 @@ import {
   storeClaimEvidenceForSession,
   summarizeIdTokenClaims,
 } from "./claim-evidence";
-import { localUserIdFromClaims } from "./claims";
+import { localUserIdFromClaims, type OIDCClaims } from "./claims";
 import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
-import { createAppSession } from "./session";
 import {
   consumeOIDCTransaction,
   createOIDCTransaction,
@@ -28,6 +27,34 @@ export class OIDCFlowError extends Error {
     super(code, options);
     this.name = "OIDCFlowError";
   }
+}
+
+export interface OIDCTokenResult {
+  claims: OIDCClaims;
+  refreshToken?: string;
+  idToken?: string;
+}
+
+/** Session creation side effect of a completed login; DB-backed in prod, in-memory in tests. */
+export interface CertusIdentitySnapshot {
+  certusSub: string;
+  sid?: string;
+  email?: string;
+  emailVerified?: boolean;
+  idTokenIat?: number;
+  name?: string;
+}
+
+export interface SessionWriter {
+  create(input: {
+    identity: CertusIdentitySnapshot;
+    derivedUserId: string;
+    refreshToken?: string | null;
+    idToken?: string | null;
+    now?: Date;
+  }): Promise<{ sessionToken: string; userId: string; sessionExpiresAt: number }>;
+  find(token: string | undefined, now?: Date): Promise<{ userId: string } | null>;
+  delete(token: string | undefined): Promise<void>;
 }
 
 export async function startOIDCLogin(
@@ -71,11 +98,13 @@ export async function completeOIDCLogin(
   options: {
     config?: AuthConfig;
     provider?: OIDCProvider;
+    sessions?: SessionWriter;
     now?: number;
   } = {},
 ): Promise<{ sessionToken: string; userId: string; sessionExpiresAt: number }> {
   const config = options.config ?? loadAuthConfig();
   const provider = options.provider ?? certusOIDCProvider;
+  const sessions = options.sessions ?? (await import("./db-flow")).dbSessionWriter;
   const transaction = consumeOIDCTransaction(transactionHandle, options.now);
   if (!transaction) {
     throw new OIDCFlowError("invalid_transaction");
@@ -92,27 +121,51 @@ export async function completeOIDCLogin(
     throw new OIDCFlowError("invalid_state");
   }
 
-  let claims;
+  let tokens: OIDCTokenResult;
   try {
-    claims = await provider.exchangeAuthorizationCode(config, currentUrl, transaction);
+    tokens = await provider.exchangeAuthorizationCode(config, currentUrl, transaction);
   } catch (cause) {
     throw new OIDCFlowError("authorization_response_rejected", { cause });
   }
 
   let userId: string;
   try {
-    userId = localUserIdFromClaims(claims, config, transaction.nonce);
+    userId = localUserIdFromClaims(tokens.claims, config, transaction.nonce);
   } catch (cause) {
     throw new OIDCFlowError("invalid_claims", { cause });
   }
-  const { token, session } = createAppSession(userId, options.now);
+
+  const sid = typeof tokens.claims.sid === "string" ? tokens.claims.sid : undefined;
+  const idTokenIat =
+    typeof tokens.claims.iat === "number" ? tokens.claims.iat : undefined;
+  const email = typeof tokens.claims.email === "string" ? tokens.claims.email : undefined;
+  const emailVerified =
+    typeof tokens.claims.email_verified === "boolean"
+      ? tokens.claims.email_verified
+      : undefined;
+  const name = typeof tokens.claims.name === "string" ? tokens.claims.name : undefined;
+
+  const session = await sessions.create({
+    identity: {
+      certusSub: userId,
+      sid,
+      email,
+      emailVerified,
+      idTokenIat,
+      name,
+    },
+    derivedUserId: userId,
+    refreshToken: tokens.refreshToken,
+    idToken: tokens.idToken,
+    now: options.now !== undefined ? new Date(options.now) : undefined,
+  });
+
   // M0: keep redacted claim evidence in process memory for contract probes.
-  storeClaimEvidenceForSession(token, summarizeIdTokenClaims(claims));
-  return {
-    sessionToken: token,
-    userId,
-    sessionExpiresAt: session.expiresAt,
-  };
+  storeClaimEvidenceForSession(
+    session.sessionToken,
+    summarizeIdTokenClaims(tokens.claims),
+  );
+  return session;
 }
 
 function equalOpaqueValue(left: string, right: string): boolean {

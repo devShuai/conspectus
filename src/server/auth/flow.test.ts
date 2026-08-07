@@ -7,7 +7,9 @@ import {
   completeOIDCLogin,
   OIDCFlowError,
   startOIDCLogin,
+  type OIDCTokenResult,
 } from "./flow";
+import { memorySessionWriter } from "./memory-session-writer";
 import type { OIDCProvider, RequestSecurity } from "./provider";
 import {
   appSessionStorageKeysForTests,
@@ -49,7 +51,14 @@ function validClaims(overrides: OIDCClaims = {}): OIDCClaims {
 function fakeProvider(claims: OIDCClaims = validClaims()): OIDCProvider & {
   exchangeAuthorizationCode: ReturnType<typeof vi.fn>;
 } {
-  const exchangeAuthorizationCode = vi.fn(async () => claims);
+  const exchangeAuthorizationCode = vi.fn(async () => {
+    const result: OIDCTokenResult = {
+      claims,
+      refreshToken: "refresh-token-value",
+      idToken: "id-token-value",
+    };
+    return result;
+  });
   return {
     async createRequestSecurity() {
       return security;
@@ -100,7 +109,7 @@ describe("OIDC login flow", () => {
     const completed = await completeOIDCLogin(
       callbackURL(),
       started.transactionHandle,
-      { config, provider, now: 10_001 },
+      { config, provider, sessions: memorySessionWriter, now: 10_001 },
     );
 
     expect(completed.userId).toMatch(/^usr_[A-Za-z0-9_-]{43}$/);
@@ -114,6 +123,7 @@ describe("OIDC login flow", () => {
       completeOIDCLogin(callbackURL(), started.transactionHandle, {
         config,
         provider,
+        sessions: memorySessionWriter,
         now: 10_003,
       }),
     ).rejects.toMatchObject({ code: "invalid_transaction" });
@@ -151,6 +161,7 @@ describe("OIDC login flow", () => {
         completeOIDCLogin(currentUrl, started.transactionHandle, {
           config,
           provider,
+          sessions: memorySessionWriter,
           now: 10_001,
         }),
       ).rejects.toMatchObject({ code: "invalid_state" });
@@ -168,6 +179,7 @@ describe("OIDC login flow", () => {
       completeOIDCLogin(wrongCallback, started.transactionHandle, {
         config,
         provider,
+        sessions: memorySessionWriter,
         now: 10_001,
       }),
     ).rejects.toMatchObject({ code: "invalid_callback_url" });
@@ -181,6 +193,7 @@ describe("OIDC login flow", () => {
       completeOIDCLogin(callbackURL(), started.transactionHandle, {
         config,
         provider,
+        sessions: memorySessionWriter,
         now: 10_000 + OIDC_TRANSACTION_TTL_MS,
       }),
     ).rejects.toMatchObject({ code: "invalid_transaction" });
@@ -198,6 +211,7 @@ describe("OIDC login flow", () => {
       completeOIDCLogin(callbackURL(), started.transactionHandle, {
         config,
         provider,
+        sessions: memorySessionWriter,
         now: 10_001,
       }),
     ).rejects.toMatchObject({ code: "invalid_claims" });
@@ -216,6 +230,7 @@ describe("OIDC login flow", () => {
       await completeOIDCLogin(callbackURL(), started.transactionHandle, {
         config,
         provider,
+        sessions: memorySessionWriter,
         now: 10_001,
       });
     } catch (error) {
