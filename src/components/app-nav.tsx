@@ -2,6 +2,7 @@ import Link from "next/link";
 
 const NAV = [
   { href: "/", label: "总览" },
+  { href: "/subscriptions", label: "订阅" },
   { href: "/usage", label: "用量" },
   { href: "/notifications", label: "通知" },
   { href: "/devices", label: "设备" },
