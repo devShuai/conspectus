@@ -21,15 +21,39 @@ function loadEnvFile(): void {
 
 loadEnvFile();
 
+/**
+ * One entry point for every package (#69).
+ *
+ * `collector/` is a separate npm package; when it was only reachable through
+ * its own `npm test`, nothing invoked it and M4 shipped with zero coverage
+ * while the root run still reported a growing green total. Both projects are
+ * declared here so a single `npm test` cannot silently skip one.
+ */
 export default defineConfig({
-  resolve: {
-    alias: {
-      "@": fileURLToPath(new URL("./src", import.meta.url)),
-    },
-  },
   test: {
-    environment: "node",
-    include: ["src/**/*.test.ts"],
-    restoreMocks: true,
+    projects: [
+      {
+        resolve: {
+          alias: {
+            "@": fileURLToPath(new URL("./src", import.meta.url)),
+          },
+        },
+        test: {
+          name: "app",
+          environment: "node",
+          include: ["src/**/*.test.ts"],
+          restoreMocks: true,
+        },
+      },
+      {
+        test: {
+          name: "collector",
+          root: fileURLToPath(new URL("./collector", import.meta.url)),
+          environment: "node",
+          include: ["src/**/*.test.ts"],
+          restoreMocks: true,
+        },
+      },
+    ],
   },
 });
