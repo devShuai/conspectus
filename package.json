@@ -12,7 +12,8 @@
     "start": "next start",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "m0:device-introspect": "tsx scripts/m0-device-introspection.ts"
   },
   "dependencies": {
     "next": "16.3.0",
@@ -24,6 +25,8 @@
     "@types/node": "20.19.43",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.4",
+    "tsx": "^4.20.5",
+    "tsx": "4.20.5",
     "typescript": "5.9.3",
     "vitest": "4.1.10"
   }
