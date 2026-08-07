@@ -75,6 +75,41 @@ describe("introspectCliToken", () => {
     await expect(introspectCliToken(bearer())).resolves.toBeNull();
   });
 
+  it("rejects a scope that merely contains usage:write as a substring", async () => {
+    // substring matching would accept these; RFC 7662 scope is space-delimited
+    for (const scope of [
+      "usage:writeall",
+      "xusage:write",
+      "openid usage:write-preview",
+      "some:usage:write-lite",
+    ]) {
+      mockIntrospection({
+        active: true,
+        sub: "user-1",
+        client_id: "conspectus-cli",
+        scope,
+      });
+      await expect(introspectCliToken(bearer())).resolves.toBeNull();
+    }
+  });
+
+  it("accepts usage:write regardless of position or extra whitespace", async () => {
+    for (const scope of [
+      "usage:write",
+      "usage:write openid",
+      "openid  usage:write   profile",
+      " openid usage:write ",
+    ]) {
+      mockIntrospection({
+        active: true,
+        sub: "user-1",
+        client_id: "conspectus-cli",
+        scope,
+      });
+      await expect(introspectCliToken(bearer())).resolves.toBe("user-1");
+    }
+  });
+
   it("rejects a missing sub", async () => {
     mockIntrospection({
       active: true,
