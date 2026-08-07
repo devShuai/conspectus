@@ -6,7 +6,7 @@ import {
   SESSION_COOKIE_NAME,
 } from "@/server/auth/cookies";
 import { loadAuthConfig } from "@/server/auth/config";
-import { deleteAppSession } from "@/server/auth/session";
+import { dbSessionWriter } from "@/server/auth/db-flow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid_origin" }, { status: 403 });
   }
 
-  deleteAppSession(request.cookies.get(SESSION_COOKIE_NAME)?.value);
+  await dbSessionWriter.delete(request.cookies.get(SESSION_COOKIE_NAME)?.value);
   const response = NextResponse.redirect(config.appUrl, 303);
   response.headers.set("Cache-Control", "no-store");
   response.cookies.set(

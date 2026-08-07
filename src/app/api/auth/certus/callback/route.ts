@@ -8,6 +8,7 @@ import {
   sessionCookieOptions,
 } from "@/server/auth/cookies";
 import { loadAuthConfig } from "@/server/auth/config";
+import { dbSessionWriter } from "@/server/auth/db-flow";
 import {
   canonicalOIDCCallbackURL,
   completeOIDCLogin,
@@ -25,7 +26,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     const login = await completeOIDCLogin(
       canonicalOIDCCallbackURL(config, request.nextUrl.searchParams),
       transactionHandle,
-      { config },
+      { config, sessions: dbSessionWriter },
     );
     const response = NextResponse.redirect(new URL("/me", config.appUrl), 303);
     response.headers.set("Cache-Control", "no-store");
