@@ -1,95 +1,150 @@
 # M0：用量来源轨（#7 / #8）
 
 > 对应 [conspectus#7](https://github.com/devShuai/conspectus/issues/7)、[conspectus#8](https://github.com/devShuai/conspectus/issues/8)。  
-> 结论日期：2026-08-07 · 验证机：Windows（本仓开发机）
+> 重新验证日期：2026-08-08 · 验证机：Windows（本仓开发机）
 
 ## 总表
 
-| 来源 | 账户/订阅 | 结论 | M3/M4 处置 |
+| 来源 | 本轮证据 | 结论 | M3/M4 处置 |
 | --- | --- | --- | --- |
-| DeepSeek 余额 API | **本机无 API Key / 未确认余额账户** | **deferred**（接口文档存在，待有 Key 再实调） | M3：有 Key 后 adapter；否则通道 C |
-| Kimi / Moonshot | 无账户 | **deferred** | 通道 C 或后续开户 issue |
-| MiniMax | 无账户 | **deferred** | 同上 |
-| xAI API | 未确认 API 平台账户 | **deferred**（形态未确认；若仅 Grok 会员 → 通道 C） | 见下 |
-| Claude Code 本地用量 | CLI 已安装；**无稳定公开只读用量命令/文件** | **degraded / 倾向 no-go for auto** | M4 默认通道 C；若上游暴露结构化用量再开 collector |
-| Codex 本地用量 | **本机未安装 codex CLI** | **deferred** | 有订阅+CLI 后再验；否则通道 C |
+| DeepSeek 余额 API | 现有本地 Key；官方 `GET /user/balance` 实调 200，schema/Decimal 校验通过 | **E2E GO** | M3 首个服务端 balance adapter |
+| Kimi / Moonshot 余额 API | 官方合同确认；现有 Kimi-for-coding Key 在国际站、国内站余额端点均为 401 | **合同 GO / 凭据 deferred** | M3 adapter 可按官方 schema 实现；真实账户验收待 Open Platform Key |
+| MiniMax API 现金余额 | 官方文档索引未发现公开现金余额端点 | **no-go for auto balance** | 通道 C；不得声称存在官方余额 API |
+| MiniMax Coding Plan 配额 | 三个活跃开源项目交叉验证未公开的 `remains` 端点；本机无 Key | **OSS 合同可行 / 实调 deferred** | M4 实验性本地 collector，按 `quota` 建模 |
+| xAI API 预付余额 | 官方 Management API 有 team prepaid balance；本机无 Management Key/team ID | **合同 GO / 凭据 deferred** | M3 独立 adapter；不是普通推理 API Key |
+| Claude Code 本地配额 | 官方 status line JSON 已声明 5h/7d 字段；本机 CLI 2.1.150 的现有 OAuth 状态显示已登录，但真实请求被认证拒绝 | **官方合同 GO / 本机 E2E deferred** | M4 collector 做字段能力探测；重新登录后复测 |
+| Codex 本地配额/计数 | 官方 CLI App Server 实调成功：rate limits、summary、daily buckets 均通过类型校验 | **E2E GO（实验性接口）** | M4 首个 collector；版本门控、失败降级到通道 C |
 
-**用量来源轨对 M0 的收敛结论**：不阻塞 M1；**M3/M4 不得假设四平台余额与双 collector 开箱可用**；主路径为手动录入 + 按账户到位逐个加 adapter/collector。
+**收敛结论**：用量来源不阻塞 M1。M3 先实现 DeepSeek；Kimi/xAI 可按官方合同实现但真实凭据验收后才能宣称 E2E；MiniMax Coding Plan、Codex、Claude Code 属于通道 B，MiniMax 的现金余额仍走通道 C。所有实验性/未公开来源都必须可禁用且不能阻断手动录入。
 
 ---
 
-## #7 四平台余额 API
+## #7 平台余额 API
 
-### 账户可得性（前置表）
+### 账户与凭据可得性
 
-| 平台 | 是否已有账户 | 是否已有余额 | 决定 |
+| 平台 | 本机可用凭据 | 实调结果 | 决定 |
 | --- | --- | --- | --- |
-| DeepSeek | 未在本环境配置 Key | 未知 | **deferred**（文档调查完成） |
-| Kimi | 否 | — | **deferred** |
-| MiniMax | 否 | — | **deferred** |
-| xAI API | 未确认形态 | — | **deferred** |
+| DeepSeek | 有，来自既有本地客户端配置 | 200 | **E2E GO** |
+| Kimi | 有 Kimi-for-coding Key，但不是 Open Platform balance Key | 国际/国内端点均 401 | **deferred**，需兼容凭据 |
+| MiniMax | 无 | 未实调 | 现金余额 **no-go**；Coding Plan 另见 OSS 方案 |
+| xAI | 无 Management API Key/team ID | 未实调 | **deferred** |
 
-未为凑齐四个平台开户充值（符合 issue 非目标）。
+未为凑齐四个平台新开户或充值，也未把任何 Key、余额、百分比或账户标识写入仓库和探针输出。
 
-### DeepSeek（文档调查 · 2026-08-07）
+### DeepSeek（官方合同 + 真实 E2E）
 
 | 项 | 记录 |
 | --- | --- |
 | 文档 | https://api-docs.deepseek.com/api/get-user-balance |
 | 方法/路径 | `GET https://api.deepseek.com/user/balance` |
-| 鉴权 | `Authorization: Bearer <API_KEY>`（与 chat 同 Key；未见独立只读 Key 说明） |
-| 成功 schema | `is_available: boolean`；`balance_infos[]`：`currency`∈{CNY,USD}，`total_balance`/`granted_balance`/`topped_up_balance` 为 **string** |
-| 映射 `UsageReading` | `kind=balance`，`remainingValue=total_balance`（十进制定点字符串），`unit=currency` |
-| 边界 | 未实调：401/429/零余额待有 Key 后补 |
-| 条款 | 仅只读 GET；避免高频轮询，建议 ≥1h + 退避（与 design 同步任务一致） |
-| 结论 | 接口设计 **适合** M3 adapter；本环境 **deferred** 实调 |
+| 鉴权 | `Authorization: Bearer <API_KEY>`（与推理同 Key；未见独立只读 Key） |
+| 成功 schema | `is_available: boolean`；`balance_infos[]`；金额字段为十进制 **string** |
+| 本轮实调 | HTTP 200；存在 CNY 行；金额均可无损解析；可用性字段存在 |
+| 映射 | `kind=balance`，`remainingValue=total_balance`，`unit=currency` |
+| 安全边界 | Key 具推理能力，服务端必须加密、脱敏日志、限制拉取频率并支持撤销 |
+| 结论 | **E2E GO**，作为 M3 第一个 balance adapter |
 
-### Kimi / MiniMax / xAI
+### Kimi / Moonshot（官方合同，凭据不兼容）
 
-- 未持有账户 → 不进入实调矩阵。  
-- xAI：**未确认**是 API 平台还是仅 Grok 消费级订阅；按 design §7.4 二者不可合并。若仅会员套餐 → **通道 C**，不进 M3 余额 adapter。
+| 项 | 记录 |
+| --- | --- |
+| 文档 | 国际站 https://platform.kimi.ai/docs/api/balance；国内站 https://platform.kimi.com/docs/api/balance |
+| 方法/路径 | 国际站 `GET https://api.moonshot.ai/v1/users/me/balance`；国内站 `GET https://api.moonshot.cn/v1/users/me/balance` |
+| 鉴权 | Open Platform API Key；现有 Kimi-for-coding Key 两站均返回 401 |
+| 成功 schema | `available_balance`、`voucher_balance`、`cash_balance` 为 JSON **number**，不是 string |
+| 精度要求 | 禁止先转 IEEE-754 `number` 再转 Decimal；必须从原始 number token 无损解析，或使用 lossless JSON parser |
+| 结论 | **官方合同 GO / 真实凭据 deferred**；401 只说明当前 Coding Plan Key 不兼容，不说明端点不可用 |
 
-### #7 验收勾选
+### MiniMax：现金余额与 Coding Plan 必须拆开
 
-- [x] 账户可得性表已填  
-- [x] 四平台均有 deferred/文档结论  
-- [x] xAI 形态未确认已单列  
-- [x] 无真实 Key/余额写入仓库  
+MiniMax 官方文档索引（https://platform.minimax.io/docs/llms.txt）未列出公开现金余额 API，因此原设计中“MiniMax 预付余额有官方接口”的表述不成立。API 现金余额暂走通道 C。
+
+社区项目提供的是 **Coding Plan 周期配额**，不是现金余额：
+
+| 开源项目 | 许可证 | 交叉验证结果 |
+| --- | --- | --- |
+| [opgginc/opencode-bar](https://github.com/opgginc/opencode-bar) | MIT | 国际站 `coding_plan/remains`；有 MiniMax parser 测试 |
+| [slkiser/opencode-quota](https://github.com/slkiser/opencode-quota) | MIT | 国际站同端点；中国站 `token_plan/remains` |
+| [onllm-dev/onWatch](https://github.com/onllm-dev/onWatch) | GPL-3.0 | 独立 Go 实现与测试；同时处理 count/percentage 变体 |
+
+交叉验证出的实验性合同：
+
+- 国际站：`GET https://api.minimax.io/v1/api/openplatform/coding_plan/remains`。
+- 中国站：`GET https://api.minimaxi.com/v1/token_plan/remains`。
+- 使用 Bearer API Key；没有独立只读 scope 的证据，因此优先在用户本机读取并只上传归一化配额。
+- `current_interval_usage_count` / weekly usage count 在现有响应中实际被社区实现解释为**剩余量**；`used = total - remaining`，不能按字段名直接当已用量。
+- 兼容旧 count 字段与新 percentage 字段；状态 1=有效、2=有效但耗尽、3=未订阅。
+- 端点未出现在官方文档中，必须标为 experimental，做 schema/范围校验、版本遥测、熔断和通道 C 降级；错误日志不得包含响应正文。
+- GPL 项目仅作行为交叉验证，不复制其代码；实现依据观察到的 HTTP 合同和本仓测试独立编写。
+
+本机没有 MiniMax Key，因此结论是 **OSS 合同可行 / 真实 E2E deferred**。该来源映射 `kind=quota`、5h/weekly 两张 metric 卡，不得映射为 `balance`。
+
+### xAI（Management API，不是普通推理 API）
+
+| 项 | 记录 |
+| --- | --- |
+| 文档 | https://docs.x.ai/developers/rest-api-reference/management/billing |
+| 方法/路径 | `GET https://management-api.x.ai/v1/billing/teams/{team_id}/prepaid/balance` |
+| 鉴权 | 独立的 Management API Key + team ID；不能假设普通推理 Key 可用 |
+| 映射 | xAI API 预付余额 → `kind=balance`；Grok 消费级订阅仍是另一张 Subscription |
+| 结论 | **官方合同 GO / 凭据 deferred**；实现前确认 Management Key 权限面和安全接受度 |
+
+### #7 验收结论
+
+- [x] DeepSeek 使用现有凭据完成真实只读 E2E
+- [x] Kimi 使用现有凭据验证出 Coding Plan Key 与 Open Platform Key 不兼容
+- [x] MiniMax 现金余额与 Coding Plan 配额拆模
+- [x] xAI Management API 与普通推理 API Key 拆模
+- [x] 未输出或入库真实 Key、余额和账户标识
+- [ ] Kimi、MiniMax、xAI 待兼容真实凭据后补充 E2E
 
 ---
 
 ## #8 Codex / Claude Code（Windows）
 
-### 订阅/工具可得性
+### 可复现探针
 
-| 平台 | 本机状态 | 决定 |
-| --- | --- | --- |
-| Claude Code | `claude` CLI 可用（npm 全局） | 调查命令/本地文件 |
-| Codex | `codex` 命令 **missing** | **deferred** |
+```powershell
+# Claude：发送一次最小请求；仅输出认证/字段存在性，不输出实际配额或响应
+.\scripts\m0-probe-claude-rate-limits.ps1
 
-### Claude Code（Windows 调查）
+# Codex：临时运行官方 CLI；只读 App Server，输出字段类型/范围布尔值
+node .\scripts\m0-probe-codex-app-server.mjs cmd.exe /d /s /c npx --yes @openai/codex app-server
+```
 
-| 项 | 记录 |
-| --- | --- |
-| OS | Windows 10/11 开发机 |
-| CLI | 已安装；`claude --help` 可见 |
-| 公开用量子命令 | help 中**无**稳定的 `usage`/`quota`/`billing` 子命令 |
-| `~/.claude` | 见 sessions/cache/settings 等；**未发现**官方文档保证的用量状态文件；**未读取**可能含 token 的凭据文件 |
-| 合规 | M0 **禁止**解析会话 transcript 或上传对话；collector 若未来实现必须只读结构化用量字段 |
-| 结论 | **no-go for M0 auto collector**（无稳定只读结构化来源）；M4 **默认通道 C**；若 Anthropic 后续提供 CLI/本地 JSON 用量视图再开 issue |
+探针不读取或打印 email、token、会话正文、余额、百分比、reset timestamp、token 数量；Claude 临时设置和捕获文件在验证后删除，Codex 不写项目依赖。
+
+### Claude Code
+
+官方 status line 文档（https://code.claude.com/docs/en/statusline）提供结构化 JSON：
+
+- `rate_limits.five_hour.used_percentage` / `resets_at`
+- `rate_limits.seven_day.used_percentage` / `resets_at`
+- `rate_limits` 只对 Claude.ai Pro/Max 订阅者在首个 API 响应后出现；两个窗口可分别缺失。
+
+这比解析 `/usage` 文本或会话 transcript 稳定且更符合隐私边界。collector 只能读取上述白名单字段，不能上传 status line 输入中的 `session_id`、`transcript_path`、workspace、模型、成本或上下文内容。
+
+本机结果：Claude Code `2.1.150` 可用，`claude auth status` 表示 OAuth 已登录，但最小真实请求仍被认证拒绝，status line 捕获未触发。因此本轮是 **官方合同 GO / 本机 E2E deferred**，不是 no-go。下一次由用户重新登录/更新 CLI 后重跑探针；实现以字段存在性为能力门控，不猜测最低版本。
 
 ### Codex
 
-- 本机未安装 → **deferred**。  
-- 跨平台风险（供 M4）：路径分隔、`%USERPROFILE%` vs `$HOME`、命令是否在 PATH、输出编码 CRLF。
+官方 App Server 文档（https://learn.chatgpt.com/docs/app-server）提供：
 
-### #8 验收勾选
+- `account/rateLimits/read`：单桶与 `rateLimitsByLimitId` 多桶；每个窗口含 `usedPercent`、`windowDurationMins`、`resetsAt`。
+- `account/usage/read`：token activity `summary` 与可选 `dailyUsageBuckets`。
 
-- [x] 订阅/工具可得性确认  
-- [x] Claude Code Windows 结论 + OS 标注  
-- [x] Codex deferred  
-- [x] 未读取 token/对话内容  
-- [x] 跨平台风险已记  
+本轮通过临时官方 `@openai/codex` CLI 完成真实 E2E：初始化成功；两个只读请求均成功；窗口百分比、周期和重置时间类型/范围通过；summary 与 daily bucket schema 通过。探针只输出布尔验证结果。
+
+官方当前仍把 `codex app-server` 命令标为 experimental/unsupported for production，因此结论是 **E2E GO，但只能作为版本门控的本地 collector**：启动失败、方法缺失、schema 漂移或未认证时降级为 unavailable + 通道 C，不能让采集失败影响业务 Session 或其他订阅。
+
+### #8 验收结论
+
+- [x] Codex 官方 App Server 完成真实只读 E2E
+- [x] Claude 官方结构化 rate-limit 合同确认
+- [x] 探针输出经过隐私最小化
+- [x] Windows 调用方式与实验性接口风险已记录
+- [ ] Claude 待有效 OAuth/兼容版本补真实 E2E
 
 ---
 
@@ -98,5 +153,5 @@
 | 里程碑 | 影响 |
 | --- | --- |
 | M1 | 无阻塞 |
-| M3 | 余额 adapter **按平台账户到位再实现**；DeepSeek 优先（文档已清晰）；其余 deferred；手动录入一等公民 |
-| M4 | 不以 Codex/Claude Code 自动采集为 V1 必达；框架可先做，collector 插件后补；通道 C 完整 |
+| M3 | DeepSeek 为首个必做 balance adapter；Kimi/xAI 按官方合同推进但以凭据 E2E 为上线门；MiniMax API 现金余额保持通道 C |
+| M4 | Codex 为首个必做 collector；Claude 按官方 status line 合同实现并保留 E2E 门；MiniMax Coding Plan 作为 experimental collector；所有来源均可降级到通道 C |

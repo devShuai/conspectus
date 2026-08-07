@@ -775,29 +775,32 @@ nextBillingDate(from: Date, cycle: BillingCycle, anchorDay?: number, cycleDays?:
 
 | 平台 | 计量模型 | 通道 | 说明 |
 | --- | --- | --- | --- |
-| **Codex** | `quota` | **B 本地采集** | 随 ChatGPT 订阅提供的 coding 额度，无公开用量 API，读本机 CLI 状态 |
-| **Claude Code** | `quota` | **B 本地采集** | 随 Claude 订阅提供，同上；CLI 本地有用量视图 |
-| **DeepSeek** | `balance` | A 服务端适配器 | 平台账户余额，API Key 可查 |
-| **Kimi** | `balance` | A 服务端适配器 | 同上 |
-| **MiniMax** | `balance` | A 服务端适配器 | 同上 |
-| **Grok** | `balance` 或 `quota` | **A 或 C，取决于形态** | 见下方说明 |
+| **Codex** | `quota` + `counter` | **B 本地采集** | 官方 App Server 有 rate limits 与 token activity；命令仍属 experimental，需版本门控与降级 |
+| **Claude Code** | `quota` | **B 本地采集** | 官方 status line JSON 有 5h/7d 用量与 reset；字段可能缺失，按能力探测 |
+| **DeepSeek** | `balance` | **A 服务端适配器** | 官方余额 API，M0 已真实 E2E |
+| **Kimi** | `balance` | **A 服务端适配器** | 官方余额 API；国际/国内平台 Key 与 host 必须匹配 |
+| **MiniMax Coding Plan** | `quota` | **B 本地采集（experimental）** | 社区交叉验证未公开 `remains` 合同；无独立只读 Key，优先本地归一化 |
+| **MiniMax API 现金余额** | `balance` | **C 手动录入** | 当前官方文档未公开现金余额 API，不进入通道 A |
+| **Grok / xAI** | `balance` 或 `quota` | **A 或 C，取决于形态** | 见下方说明 |
 
-Codex 与 Claude Code 是**订阅制额度**——正是通道 B 存在的理由；DeepSeek / Kimi / MiniMax 是**预付费 API 平台**，有官方接口，走通道 A 用 API Key 拉取。
+Codex 与 Claude Code 是**订阅制额度**——正是通道 B 存在的理由。DeepSeek / Kimi 的预付费平台余额有官方接口，走通道 A。MiniMax 必须拆成 Coding Plan 配额与 API 现金余额两张 metric：前者只有社区验证的本地取数合同，后者没有公开官方余额接口，不能因为品牌相同就硬塞进通道 A。
 
 **Grok 需要按形态分开处理**，这是它和其余五个的区别：
 
 | 形态 | 计量 | 通道 | 说明 |
 | --- | --- | --- | --- |
-| xAI API 平台（用 API Key 调用） | `balance` | **A** | 与 DeepSeek / Kimi / MiniMax 同构，适配器基本是复制粘贴改端点 |
+| xAI API 平台预付余额 | `balance` | **A** | `management-api.x.ai` 的 team prepaid balance；需要独立 Management API Key + team ID，不是普通推理 Key |
 | 消费级订阅（含 Grok 的会员套餐） | `quota` | **C 手动录入**，若其客户端本地暴露用量则升级到 B | 这类套餐的额度通常是**不透明的速率限制**，官方既不给 API 也不在界面上给确切数字 |
 
-**先按形态 A（xAI API 余额）实现**，它确定可做且与已有三个适配器同构；消费级订阅形态先走手动录入，等确认其客户端是否在本地留有可读的用量状态，再决定要不要写 collector。
+**形态 A（xAI API 余额）可以实现，但必须作为独立适配器**：调用 Management API，并在接入前确认 Management Key 的权限面和服务端托管风险；不能复制普通推理 API Key 的适配器。消费级订阅形态先走手动录入，等确认其客户端是否在本地留有可读的用量状态，再决定要不要写 collector。
 
 > 这里体现了一个通用判断：**遇到"同一个品牌有订阅制和 API 制两种卖法"时，它们在 conspectus 里是两个独立的 Subscription、两套 metric，不该合并成一条**。用户可能两个都买了，合并会让"我在这家花了多少"和"我还剩多少"都算不清。
 
-> 实现时各家的端点路径、鉴权头和字段名以**当时的官方文档为准**，不要照抄本文档或任何二手资料 —— 这类接口变动频繁，写死在设计文档里的路径几乎必然过期。适配器要做的是把各家响应归一化成 `UsageReading`，这一层契约是稳定的。
+> 实现时各家的端点路径、鉴权头和字段名以**当时的官方文档为准**。MiniMax Coding Plan 是明确例外：它依赖未公开、由多个开源实现交叉验证的合同，所以必须标记 `experimental`，做 schema/范围校验、熔断和手动降级，不能把社区合同描述成官方 API。适配器/collector 统一归一化成 `UsageReading`，这一层契约保持稳定。
 
-通道 B 是订阅制 coding plan 唯一现实的自动化路径 —— 这类套餐的用量只在客户端本地或网页面板里，服务端拿不到，但**用户自己的机器上拿得到**。把采集点从服务端搬到本地就绕开了这个死结。
+> MiniMax `remains` 的字段名有陷阱：现有社区实现把 `current_interval_usage_count` 与 weekly usage count 解释为**剩余量**，应计算 `used = total - remaining`；还要兼容 percentage 变体。错误响应正文可能含敏感信息，禁止写日志。GPL 项目只能用于行为交叉验证，不复制实现代码。
+
+通道 B 是订阅制 coding plan 的主要自动化路径 —— 这类套餐的用量通常只在客户端本地、官方本地协议或网页面板里，业务服务端拿不到，但**用户自己的机器上拿得到**。把采集点放在本地还避免把具有推理能力、缺少只读 scope 的 Key 长期托管到 conspectus 服务端。
 
 即便如此，**手动录入仍然是一等公民**：用户可能不愿意装 CLI，可能在没装 CLI 的机器上用，采集器也可能因为上游改版而失效。任何"所有订阅都能自动读用量"的假设都会在落地时崩掉。
 
@@ -1225,12 +1228,12 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 
 | 阶段 | 内容 | 交付标准 |
 | --- | --- | --- |
-| **M0 风险验证**（2–4 天） | `openid-client` 对接 certus + 自有 Session 最小 PoC；设备码、跨客户端内省（`conspectus-cli` 声明 `introspectable_by: ["conspectus"]` 后为 `active:true`）、`usage:write`、`email_verified`、状态端点 200/404/限流做真实 E2E；为自动部署闸门补齐并验证 `GET /api/v1/clients/me/capabilities` 机器可读契约；验证四个 API 余额接口；实测 Codex / Claude Code 只读用量来源 | 形成 ADR 和 go/no-go 清单；功能能力已代码核对，但**能力声明端点是新增的明确上游依赖，落地前不得宣称认证侧零未知**；任一认证契约或用量来源不可用时先改范围，不把风险推到 M1/M3/M4 |
+| **M0 风险验证**（2–4 天） | `openid-client` 对接 certus + 自有 Session 最小 PoC；设备码、跨客户端内省（`conspectus-cli` 声明 `introspectable_by: ["conspectus"]` 后为 `active:true`）、`usage:write`、`email_verified`、状态端点 200/404/限流做真实 E2E；为自动部署闸门补齐并验证 `GET /api/v1/clients/me/capabilities` 机器可读契约；验证各平台余额官方合同与凭据边界；实测 Codex / Claude Code 并审计 MiniMax Coding Plan 开源取数方案 | 形成 ADR 和 go/no-go 清单；功能能力已代码核对，但**能力声明端点是新增的明确上游依赖，落地前不得宣称认证侧零未知**；任一认证契约或用量来源不可用时先改范围，不把风险推到 M1/M3/M4 |
 | **M1 骨架**（2 周） | 项目初始化（`src/` 布局）、Prisma schema、自有不透明 Session + certus OIDC 完整接入（JIT、Back-Channel Logout 持久化 jti、全局状态/关联状态/临时门禁分层、identity-status 恢复 runner、邮箱快照一致性、Reauth 用户绑定、POST 全局登出、受保护 deep ready）、租户组合外键、订阅 CRUD、周期单测 | certus 登录成功；404 不锁本地身份且可重新授权恢复；locked→active 有后台与登录两条恢复路径；状态复核 single-flight、NULL fail-closed、陈旧上界可验证；back-channel 重放只处理一次；换 certus 账号不能完成原用户 Reauth；全局登出有 CSRF；跨用户外键被 DB 拒绝；缺配置不 ready |
 | **M1b 本地账号**（1 周，M5 前任意时点插入） | 本地密码校验接入同一 `createAppSession()`、密码策略与锁定、找回、邮箱验证、大小写不敏感唯一、绑定/解绑、限流 | `local` / `both` 共用同一种 Session；大小写变体邮箱不能重复注册；绑定后两路径进同一账号；解除最后登录方式返回 409；枚举防护有集成测试 |
 | **M2 钱**（1–2 周） | BillingRecord charge/refund、BillingConversion、汇率抓取、续费/试用首账幂等、Dashboard、统计、日历、CSV | 多币种净支出正确；试用自动转正不跳过首笔 pending；部分退款记在退款月；Cron 并发不重复建账；切换本位币无混合口径 |
-| **M3 提醒 + 用量**（2–3 周） | Cron 锁/分片、notification-scan、Event/Delivery/Digest outbox、邮件/Webhook、告警资格 CAS、三种用量模型、权威 Binding、通道 A 持久化退避、周期历史汇总、手动录入与洞察 | 通知租约可恢复且发送前复核身份门禁；certus 来源 Email 每个实际批次强制成功状态预检，故障只延迟；可恢复身份/邮箱故障不误记发送失败；摘要与即时渠道独立调度；四个平台余额按 Decimal 精确入库，非权威 binding 不覆盖当前值，历史闲置比例不漂移。certus 提交邮箱 A→B 后，下一次投递观察画像版本并阻断 A；重新登录取得 B+验证位成对快照后才恢复仍适用提醒 |
-| **M4 本地采集器**（2 周） | CLI、certus 设备码、设备签名密钥、manifest binding、collector 框架、Codex / Claude Code collector、设备撤销与离线扫描 | reading 只能写授权 binding；撤销单设备后立即拒绝；多设备 CAS 不双计/不倒退；设备离线规则由小时任务触发；`--dry-run` 可核对 |
+| **M3 提醒 + 用量**（2–3 周） | Cron 锁/分片、notification-scan、Event/Delivery/Digest outbox、邮件/Webhook、告警资格 CAS、三种用量模型、权威 Binding、通道 A 持久化退避、周期历史汇总、手动录入与洞察 | 通知租约可恢复且发送前复核身份门禁；certus 来源 Email 每个实际批次强制成功状态预检，故障只延迟；可恢复身份/邮箱故障不误记发送失败；摘要与即时渠道独立调度；DeepSeek/Kimi/xAI 官方余额按 Decimal 精确入库，MiniMax API 现金余额走手动通道，非权威 binding 不覆盖当前值，历史闲置比例不漂移。certus 提交邮箱 A→B 后，下一次投递观察画像版本并阻断 A；重新登录取得 B+验证位成对快照后才恢复仍适用提醒 |
+| **M4 本地采集器**（2 周） | CLI、certus 设备码、设备签名密钥、manifest binding、collector 框架、Codex 首个 collector、Claude Code status line collector（认证 E2E 门控）、MiniMax Coding Plan experimental collector、设备撤销与离线扫描 | reading 只能写授权 binding；实验性/未公开上游缺失或漂移时降级通道 C；撤销单设备后立即拒绝；多设备 CAS 不双计/不倒退；设备离线规则由小时任务触发；`--dry-run` 可核对且不输出真实用量 |
 | **M5 PWA + 部署**（1–2 周） | Manifest、图标、只缓存静态壳的 Service Worker、移动端布局；Docker/compose 与 Vercel 两套产物 | 手机可安装；离线不泄露私有数据；Docker 与 Vercel Pro/外部调度器形态各跑通一次完整发布 |
 | **M6 导入**（1–2 周） | 专属收件地址、Email Worker、解析规则库、Inbox 草稿确认流 | 转发一封扣款邮件能生成正确草稿 |
 
