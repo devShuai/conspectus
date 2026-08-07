@@ -1,0 +1,213 @@
+// conspectus · M1 数据模型
+// 依据 docs/design.md §6.2。Prisma 无法表达的约束（部分唯一、表达式索引、
+// 条件 CHECK、DEFERRABLE 组合外键、Vendor 触发器）见 prisma/migrations/*/constraints.sql。
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserStatus {
+  active
+  suspended
+}
+
+enum UserStatusReason {
+  admin
+  certus_locked
+  certus_disabled
+}
+
+enum CertusLinkStatus {
+  active
+  reauth_required
+}
+
+enum EmailVerificationSource {
+  local
+  certus
+}
+
+enum SessionAuthMethod {
+  certus
+  local
+}
+
+enum VendorCategory {
+  streaming
+  ai
+  cloud
+  dev_tool
+  storage
+  domain
+  music
+  news
+  game
+  other
+}
+
+enum SubscriptionStatus {
+  trial
+  active
+  paused
+  canceled
+  expired
+}
+
+enum BillingCycle {
+  weekly
+  monthly
+  quarterly
+  yearly
+  custom
+  lifetime
+  one_time
+}
+
+model User {
+  id            String   @id @default(uuid()) @db.Uuid
+  certusSub     String?  @unique @db.Text
+  email         String?  @db.Text
+  emailVerifiedAt DateTime?
+  emailVerificationSource EmailVerificationSource?
+  emailSnapshotIssuedAt DateTime?
+  emailSyncRequiredAt DateTime?
+  lastStatusSyncedAt DateTime?
+  certusLinkStatus CertusLinkStatus?
+  statusCheckFailureCount Int @default(0)
+  nextStatusCheckAt DateTime?
+  statusSyncLeaseUntil DateTime?
+  statusSyncLeaseToken String? @db.Uuid
+  lastStatusSyncError String? @db.Text
+  passwordHash  String? @db.Text
+  failedLoginCount Int @default(0)
+  lockedUntil   DateTime?
+  name          String? @db.Text
+  baseCurrency  String  @default("CNY") @db.Char(3)
+  timezone      String  @default("Asia/Shanghai") @db.Text
+  inboundAddress String? @unique @db.Text
+  status        UserStatus @default(active)
+  statusReason  UserStatusReason?
+  lastLoginAt   DateTime?
+  createdAt     DateTime @default(now()) @db.Timestamptz
+  updatedAt     DateTime @updatedAt @db.Timestamptz
+
+  sessions   Session[]
+  reauthTransactions ReauthTransaction[]
+  subscriptions Subscription[]
+  vendors    Vendor[]
+
+  @@index([status])
+  @@index([certusLinkStatus])
+  @@index([nextStatusCheckAt])
+  @@map("users")
+}
+
+model Session {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  tokenHash Bytes    @unique
+  authMethod SessionAuthMethod
+  idleExpiresAt  DateTime @db.Timestamptz
+  absoluteExpiresAt DateTime @db.Timestamptz
+  lastSeenAt DateTime @db.Timestamptz
+  certusSid String? @db.Text
+  certusRefreshTokenCipher Bytes?
+  certusIdTokenCipher Bytes?
+  lastIdentityCheckedAt DateTime? @db.Timestamptz
+  authTime  DateTime @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([certusSid])
+  @@index([idleExpiresAt])
+  @@index([absoluteExpiresAt])
+  @@map("sessions")
+}
+
+model BackchannelLogoutReplay {
+  issuer String @db.Text
+  jti    String @db.Text
+  expiresAt DateTime @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  @@id([issuer, jti])
+  @@index([expiresAt])
+  @@map("backchannel_logout_replays")
+}
+
+model ReauthTransaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  sessionId String   @db.Uuid
+  action    String   @db.Text
+  tokenHash Bytes    @unique
+  expiresAt DateTime @db.Timestamptz
+  verifiedAt DateTime? @db.Timestamptz
+  consumedAt DateTime? @db.Timestamptz
+  createdAt DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([sessionId])
+  @@index([expiresAt])
+  @@map("reauth_transactions")
+}
+
+model Vendor {
+  id        String @id @default(uuid()) @db.Uuid
+  slug      String @db.Text
+  name      String @db.Text
+  category  VendorCategory
+  homepage  String? @db.Text
+  cancelUrl String? @db.Text
+  logoUrl   String? @db.Text
+  userId    String? @db.Uuid
+  createdAt DateTime @default(now()) @db.Timestamptz
+  updatedAt DateTime @updatedAt @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: Cascade)
+  subscriptions Subscription[]
+
+  @@map("vendors")
+}
+
+model Subscription {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  vendorId   String? @db.Uuid
+  name       String @db.Text
+  planName   String? @db.Text
+  status     SubscriptionStatus
+  price      Decimal @db.Decimal(14, 2)
+  currency   String @db.Char(3)
+  billingCycle BillingCycle
+  cycleDays  Int?
+  anchorDay  Int?
+  startedAt  DateTime @db.Date
+  nextBillingAt DateTime? @db.Date
+  endedAt    DateTime? @db.Date
+  trialEndsAt DateTime? @db.Date
+  autoRenew  Boolean @default(true)
+  paymentMethodId String? @db.Uuid
+  tags       String[] @default([])
+  notes      String? @db.Text
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  vendor Vendor? @relation(fields: [vendorId], references: [id])
+
+  @@index([userId, status])
+  @@index([userId, nextBillingAt])
+  @@index([userId, vendorId])
+  @@map("subscriptions")
+}
