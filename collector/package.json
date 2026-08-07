@@ -1,0 +1,20 @@
+{
+  "name": "conspectus-collect",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "bin": {
+    "conspectus-collect": "./bin/conspectus-collect.mjs"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "openid-client": "^6.8.4"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}
