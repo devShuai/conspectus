@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
 
-import type { AuthConfig } from "./config";
+import type { AuthConfig } from "./config.js";
 
 export type OIDCClaims = Record<string, unknown>;
 

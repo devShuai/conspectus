@@ -1,4 +1,4 @@
-import type { AuthConfig } from "./config";
+import type { AuthConfig } from "./config.js";
 
 export const SESSION_COOKIE_NAME = "conspectus_session";
 export const OIDC_TRANSACTION_COOKIE_NAME = "conspectus_oidc_tx";

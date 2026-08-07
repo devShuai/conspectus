@@ -6,7 +6,7 @@ import {
   createReauthTransaction,
   terminateReauthTransaction,
   verifyReauthTransaction,
-} from "./reauth";
+} from "./reauth.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

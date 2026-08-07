@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { annualizedCost, nextBillingDate } from "./cycle";
+import { annualizedCost, nextBillingDate } from "./cycle.js";
 
 describe("nextBillingDate", () => {
   it("advances monthly by one calendar month", () => {

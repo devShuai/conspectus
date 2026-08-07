@@ -190,6 +190,31 @@ export async function runNotificationScan(now: Date = new Date()): Promise<{
         }
       }
     }
+    if (rule.type === "collector_stale") {
+      const staleDays = config.days ?? 3;
+      const cutoff = new Date(now.getTime() - staleDays * 86_400_000);
+      const devices = await db.collectorDevice.findMany({
+        where: {
+          userId: rule.userId,
+          revokedAt: null,
+          OR: [{ lastSeenAt: null }, { lastSeenAt: { lt: cutoff } }],
+        },
+      });
+      for (const device of devices) {
+        const base = device.lastSeenAt ?? device.createdAt;
+        const key = `stale:${base.toISOString().slice(0, 10)}`;
+        const emitted = await emitEvent({
+          userId: rule.userId,
+          ruleId: rule.id,
+          subjectType: "device",
+          subjectId: device.id,
+          dedupeKey: key,
+          payload: { deviceId: device.id, name: device.name },
+          occurredAt: now,
+        });
+        if (emitted) events++;
+      }
+    }
   }
 
   return { events, skipped };

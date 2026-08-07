@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { dbSessionWriter } from "./db-flow";
-import { upsertCertusUser } from "./jit-user";
+import { dbSessionWriter } from "./db-flow.js";
+import { upsertCertusUser } from "./jit-user.js";
 import {
   createPersistentSession,
   decryptSessionTokenCipher,
@@ -11,8 +11,8 @@ import {
   SESSION_ABSOLUTE_TTL_MS,
   SESSION_IDLE_TTL_MS,
   tokenHashOf,
-} from "./session-db";
-import { loadCredentialKeyring } from "./crypto";
+} from "./session-db.js";
+import { loadCredentialKeyring } from "./crypto.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

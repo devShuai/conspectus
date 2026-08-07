@@ -4,7 +4,7 @@ import {
   evaluateDeviceM0Result,
   fingerprint,
   summarizeIntrospection,
-} from "./device-introspection";
+} from "./device-introspection.js";
 
 describe("summarizeIntrospection", () => {
   it("marks active tokens with usage:write and fingerprints subject", () => {

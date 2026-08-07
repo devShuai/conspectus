@@ -5,7 +5,7 @@ import {
   hashPassword,
   PasswordPolicyError,
   verifyPassword,
-} from "./password";
+} from "./password.js";
 
 describe("password policy", () => {
   it("rejects short and weak passwords", () => {

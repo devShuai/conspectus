@@ -1,6 +1,6 @@
 import { db } from "@/server/db";
-import type { UsageReading } from "./reading";
-import { IngestError } from "./reading";
+import type { UsageReading } from "./reading.js";
+import { IngestError } from "./reading.js";
 
 export interface IngestResult {
   accepted: number;

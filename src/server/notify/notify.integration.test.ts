@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { armOrSkip, clearArm, emitEvent, runNotificationScan } from "./scan";
-import { dispatchDueDeliveries } from "./dispatch";
+import { armOrSkip, clearArm, emitEvent, runNotificationScan } from "./scan.js";
+import { dispatchDueDeliveries } from "./dispatch.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

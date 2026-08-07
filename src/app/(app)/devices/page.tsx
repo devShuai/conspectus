@@ -1,0 +1,54 @@
+import { redirect } from "next/navigation";
+
+import { currentAppSession } from "@/server/auth/current-session";
+import { db } from "@/server/db";
+
+export const dynamic = "force-dynamic";
+
+export default async function DevicesPage() {
+  const session = await currentAppSession();
+  if (!session) redirect("/");
+
+  const devices = await db.collectorDevice.findMany({
+    where: { userId: session.userId },
+    orderBy: { createdAt: "desc" },
+  });
+
+  return (
+    <main className="shell">
+      <p className="eyebrow">采集设备</p>
+      <h1>本地采集器</h1>
+      <table className="data-table">
+        <thead>
+          <tr><th>名称</th><th>平台</th><th>版本</th><th>最近上报</th><th>状态</th></tr>
+        </thead>
+        <tbody>
+          {devices.map((device) => {
+            const offline =
+              !device.revokedAt &&
+              (!device.lastSeenAt ||
+                Date.now() - device.lastSeenAt.getTime() > 3 * 86_400_000);
+            return (
+              <tr key={device.id}>
+                <td>{device.name}</td>
+                <td>{device.platform}</td>
+                <td>{device.agentVersion}</td>
+                <td>{device.lastSeenAt?.toISOString() ?? "从未上报"}</td>
+                <td>
+                  {device.revokedAt ? (
+                    <span className="tag warn">已撤销</span>
+                  ) : offline ? (
+                    <span className="tag warn">离线</span>
+                  ) : (
+                    <span className="tag">在线</span>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
+          {devices.length === 0 && <tr><td colSpan={5} className="muted">暂无设备</td></tr>}
+        </tbody>
+      </table>
+    </main>
+  );
+}

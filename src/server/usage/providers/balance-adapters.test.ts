@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { listBalanceAdapters } from "./balance-adapters";
+import { listBalanceAdapters } from "./balance-adapters.js";
 
 describe("balance adapters", () => {
   it("registers the three balance providers", () => {

@@ -6,7 +6,7 @@ import {
   LocalAuthError,
   MAX_FAILED_LOGINS,
   registerLocalUser,
-} from "./local-auth";
+} from "./local-auth.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

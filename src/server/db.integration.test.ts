@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { db } from "./db";
+import { db } from "./db.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

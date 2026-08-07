@@ -118,6 +118,7 @@ model User {
   notificationDigests NotificationDigest[]
   notificationArmStates NotificationArmState[]
   priceChanges PriceChange[]
+  collectorDevices CollectorDevice[]
 
   @@index([status])
   @@index([certusLinkStatus])
@@ -745,4 +746,35 @@ model PriceChange {
 
   @@index([userId, subscriptionId])
   @@map("price_changes")
+}
+
+model CollectorDevice {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  name       String @db.Text
+  platform   String @db.Text
+  agentVersion String @db.Text
+  publicKey  Bytes
+  keyAlgorithm String @default("Ed25519") @db.Text
+  lastSeenAt DateTime? @db.Timestamptz
+  lastReportStatus String? @db.Text
+  revokedAt  DateTime? @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([revokedAt])
+  @@map("collector_devices")
+}
+
+model CollectorNonce {
+  deviceId String @db.Uuid
+  nonce    String @db.Text
+  seenAt   DateTime @db.Timestamptz
+
+  @@id([deviceId, nonce])
+  @@index([seenAt])
+  @@map("collector_nonces")
 }

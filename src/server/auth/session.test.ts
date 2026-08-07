@@ -7,8 +7,8 @@ import {
   findAppSession,
   resetAppSessionsForTests,
   SESSION_TTL_MS,
-} from "./session";
-import { tokenDigest } from "./opaque-store";
+} from "./session.js";
+import { tokenDigest } from "./opaque-store.js";
 
 describe("application sessions", () => {
   beforeEach(() => resetAppSessionsForTests());

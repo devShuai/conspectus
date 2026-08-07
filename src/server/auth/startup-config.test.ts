@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { loadStartupConfig } from "./startup-config";
+import { loadStartupConfig } from "./startup-config.js";
 
 const base = {
   NODE_ENV: "test",

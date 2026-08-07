@@ -1,7 +1,7 @@
 import { cookies } from "next/headers";
 
-import { SESSION_COOKIE_NAME } from "./cookies";
-import { dbSessionWriter } from "./db-flow";
+import { SESSION_COOKIE_NAME } from "./cookies.js";
+import { dbSessionWriter } from "./db-flow.js";
 
 export interface CurrentSession {
   userId: string;

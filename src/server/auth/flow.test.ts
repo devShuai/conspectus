@@ -1,27 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { OIDCClaims } from "./claims";
-import { loadAuthConfig } from "./config";
+import type { OIDCClaims } from "./claims.js";
+import { loadAuthConfig } from "./config.js";
 import {
   canonicalOIDCCallbackURL,
   completeOIDCLogin,
   OIDCFlowError,
   startOIDCLogin,
   type OIDCTokenResult,
-} from "./flow";
-import { memorySessionWriter } from "./memory-session-writer";
-import type { OIDCProvider, RequestSecurity } from "./provider";
+} from "./flow.js";
+import { memorySessionWriter } from "./memory-session-writer.js";
+import type { OIDCProvider, RequestSecurity } from "./provider.js";
 import {
   appSessionStorageKeysForTests,
   deleteAppSession,
   findAppSession,
   resetAppSessionsForTests,
-} from "./session";
+} from "./session.js";
 import {
   OIDC_TRANSACTION_TTL_MS,
   oidcTransactionStorageKeysForTests,
   resetOIDCTransactionsForTests,
-} from "./transaction";
+} from "./transaction.js";
 
 const config = loadAuthConfig({
   NODE_ENV: "test",

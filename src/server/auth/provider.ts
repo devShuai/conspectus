@@ -2,10 +2,10 @@ import { createHash } from "node:crypto";
 
 import * as oidc from "openid-client";
 
-import type { OIDCClaims } from "./claims";
-import type { AuthConfig } from "./config";
-import type { OIDCTransaction } from "./transaction";
-import type { OIDCTokenResult } from "./flow";
+import type { OIDCClaims } from "./claims.js";
+import type { AuthConfig } from "./config.js";
+import type { OIDCTransaction } from "./transaction.js";
+import type { OIDCTokenResult } from "./flow.js";
 
 export interface RequestSecurity {
   state: string;

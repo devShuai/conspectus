@@ -7,8 +7,8 @@ import {
   setLocalPassword,
   unbindCertusFromUser,
   unbindLocalPasswordFromUser,
-} from "./bind";
-import { hashPassword } from "./password";
+} from "./bind.js";
+import { hashPassword } from "./password.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

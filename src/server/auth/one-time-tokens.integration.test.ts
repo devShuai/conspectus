@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { hashPassword } from "./password";
+import { hashPassword } from "./password.js";
 import {
   consumeEmailVerificationToken,
   consumePasswordResetToken,
@@ -9,7 +9,7 @@ import {
   issuePasswordResetToken,
   TOKEN_TTL_MS,
   TokenError,
-} from "./one-time-tokens";
+} from "./one-time-tokens.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 

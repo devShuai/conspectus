@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
 import { loadAuthConfig } from "@/server/auth/config";
-import { identityGateOk } from "./identity-status";
+import { identityGateOk } from "./identity-status.js";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 
