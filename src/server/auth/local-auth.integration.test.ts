@@ -71,6 +71,31 @@ describe.skipIf(DISABLED)("local auth", () => {
     expect(a).toBe(b);
   });
 
+  it.each(["admin", "certus_locked"] as const)(
+    "rejects a suspended account before creating a local session (%s)",
+    async (statusReason) => {
+      const email = uniqueEmail();
+      const registered = await registerLocalUser({
+        email,
+        password: "correct-horse-battery-9!",
+        environment: { LOCAL_REGISTRATION_ENABLED: "true" },
+      });
+      await db.user.update({
+        where: { id: registered.userId },
+        data: { status: "suspended", statusReason },
+      });
+
+      await expect(
+        loginLocalUser({ email, password: "correct-horse-battery-9!" }),
+      ).rejects.toMatchObject({ code: "account_suspended" });
+      expect(
+        await db.session.count({ where: { userId: registered.userId } }),
+      ).toBe(0);
+
+      await db.user.delete({ where: { id: registered.userId } });
+    },
+  );
+
   it("rejects duplicate registration (case-insensitive)", async () => {
     const email = uniqueEmail();
     await registerLocalUser({

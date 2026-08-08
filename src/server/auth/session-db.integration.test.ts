@@ -197,6 +197,105 @@ describe.skipIf(DISABLED)("JIT certus user", () => {
     await db.user.delete({ where: { id: second.userId } });
   });
 
+  it("keeps the email snapshot and proof when the ID Token omits email", async () => {
+    const sub = uniqueSub("usr-jit-email-omitted");
+    const firstIat = 1_786_147_200;
+    const secondIat = firstIat + 60;
+    const first = await upsertCertusUser({
+      sub,
+      email: "kept@example.com",
+      emailVerified: true,
+      idTokenIat: firstIat,
+    });
+    const originalProof = first.user.emailVerifiedAt;
+    const originalSnapshot = first.user.emailSnapshotIssuedAt;
+
+    const second = await upsertCertusUser({ sub, idTokenIat: secondIat });
+    expect(second.user.email).toBe("kept@example.com");
+    expect(second.user.emailVerifiedAt).toEqual(originalProof);
+    expect(second.user.emailVerificationSource).toBe("certus");
+    expect(second.user.emailSnapshotIssuedAt).toEqual(originalSnapshot);
+    expect(second.user.lastStatusSyncedAt).toEqual(new Date(secondIat * 1_000));
+
+    await db.user.delete({ where: { id: second.userId } });
+  });
+
+  it("stores ID Token iat as seconds and advances status time monotonically", async () => {
+    const sub = uniqueSub("usr-jit-status-time");
+    const firstIat = 1_786_147_200;
+    const laterIat = firstIat + 120;
+    const first = await upsertCertusUser({ sub, idTokenIat: firstIat });
+    expect(first.user.lastStatusSyncedAt).toEqual(new Date(firstIat * 1_000));
+
+    const advanced = await upsertCertusUser({ sub, idTokenIat: laterIat });
+    expect(advanced.user.lastStatusSyncedAt).toEqual(new Date(laterIat * 1_000));
+    const delayed = await upsertCertusUser({ sub, idTokenIat: firstIat });
+    expect(delayed.user.lastStatusSyncedAt).toEqual(new Date(laterIat * 1_000));
+
+    await db.user.delete({ where: { id: delayed.userId } });
+  });
+
+  it.each([
+    { status: "active", statusReason: null, certusLinkStatus: "reauth_required" },
+    { status: "suspended", statusReason: "certus_locked", certusLinkStatus: "active" },
+    { status: "suspended", statusReason: "certus_disabled", certusLinkStatus: "active" },
+  ] as const)(
+    "successful OIDC login restores recoverable state ($status/$statusReason/$certusLinkStatus)",
+    async (initial) => {
+      const sub = uniqueSub("usr-jit-recover");
+      const user = await db.user.create({
+        data: {
+          certusSub: sub,
+          certusLinkStatus: initial.certusLinkStatus,
+          lastStatusSyncedAt: new Date("2026-08-01T00:00:00.000Z"),
+          status: initial.status,
+          statusReason: initial.statusReason,
+        },
+      });
+      const issuedAt = Math.floor(Date.now() / 1_000);
+
+      const login = await dbSessionWriter.create({
+        identity: { certusSub: sub, idTokenIat: issuedAt },
+        derivedUserId: sub,
+      });
+      const updated = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+      expect(updated.status).toBe("active");
+      expect(updated.statusReason).toBeNull();
+      expect(updated.certusLinkStatus).toBe("active");
+      expect(updated.lastStatusSyncedAt).toEqual(new Date(issuedAt * 1_000));
+      expect(await db.session.count({ where: { userId: user.id } })).toBe(1);
+
+      await dbSessionWriter.delete(login.sessionToken);
+      await db.user.delete({ where: { id: user.id } });
+    },
+  );
+
+  it("refuses OIDC Session creation for an admin-suspended user", async () => {
+    const sub = uniqueSub("usr-jit-admin-suspended");
+    const user = await db.user.create({
+      data: {
+        certusSub: sub,
+        certusLinkStatus: "active",
+        lastStatusSyncedAt: new Date(),
+        status: "suspended",
+        statusReason: "admin",
+      },
+    });
+
+    await expect(
+      dbSessionWriter.create({
+        identity: { certusSub: sub, idTokenIat: Math.floor(Date.now() / 1_000) },
+        derivedUserId: sub,
+      }),
+    ).rejects.toMatchObject({ code: "account_suspended" });
+    expect(await db.session.count({ where: { userId: user.id } })).toBe(0);
+    const unchanged = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(unchanged.status).toBe("suspended");
+    expect(unchanged.statusReason).toBe("admin");
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+
   it("dbSessionWriter creates a session and validates after restart semantics", async () => {
     const sub = uniqueSub("usr-writer-e2e");
     const created = await dbSessionWriter.create({

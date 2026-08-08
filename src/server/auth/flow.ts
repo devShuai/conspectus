@@ -6,6 +6,7 @@ import {
   type OIDCClaims,
 } from "./claims";
 import { loadAuthConfig, type AuthConfig } from "./config";
+import { AccountSuspendedError } from "./login-policy";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
 import {
   createOIDCTransaction,
@@ -17,7 +18,8 @@ export type OIDCFlowErrorCode =
   | "invalid_state"
   | "invalid_transaction"
   | "invalid_claims"
-  | "authorization_response_rejected";
+  | "authorization_response_rejected"
+  | "account_suspended";
 
 export class OIDCFlowError extends Error {
   constructor(
@@ -157,21 +159,29 @@ export async function completeOIDCLogin(
       : undefined;
   const name = typeof tokens.claims.name === "string" ? tokens.claims.name : undefined;
 
-  const session = await sessions.create({
-    identity: {
-      certusSub: userId,
-      legacySub: legacyDerivedSubject(config.issuerIdentifier, userId),
-      sid,
-      email,
-      emailVerified,
-      idTokenIat,
-      name,
-    },
-    derivedUserId: userId,
-    refreshToken: tokens.refreshToken,
-    idToken: tokens.idToken,
-    now: options.now !== undefined ? new Date(options.now) : undefined,
-  });
+  let session: Awaited<ReturnType<SessionWriter["create"]>>;
+  try {
+    session = await sessions.create({
+      identity: {
+        certusSub: userId,
+        legacySub: legacyDerivedSubject(config.issuerIdentifier, userId),
+        sid,
+        email,
+        emailVerified,
+        idTokenIat,
+        name,
+      },
+      derivedUserId: userId,
+      refreshToken: tokens.refreshToken,
+      idToken: tokens.idToken,
+      now: options.now !== undefined ? new Date(options.now) : undefined,
+    });
+  } catch (cause) {
+    if (cause instanceof AccountSuspendedError) {
+      throw new OIDCFlowError("account_suspended", { cause });
+    }
+    throw cause;
+  }
 
   return session;
 }

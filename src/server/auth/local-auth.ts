@@ -16,6 +16,7 @@ export class LocalAuthError extends Error {
     public readonly code:
       | "invalid_credentials"
       | "account_locked"
+      | "account_suspended"
       | "email_taken"
       | "registration_disabled"
       | "email_not_verified",
@@ -89,24 +90,32 @@ export async function loginLocalUser(input: {
     throw new LocalAuthError("invalid_credentials", "invalid credentials");
   }
 
+  if (user.status === "suspended") {
+    throw new LocalAuthError("account_suspended", "account is suspended");
+  }
+
   if (user.lockedUntil && user.lockedUntil > now) {
     throw new LocalAuthError("account_locked", "account temporarily locked");
   }
 
-  // reset counters on success
-  await db.user.update({
-    where: { id: user.id },
-    data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: now },
+  const keyring = loadCredentialKeyring();
+  const session = await db.$transaction(async (tx) => {
+    const reset = await tx.user.updateMany({
+      where: { id: user.id, status: "active" },
+      data: { failedLoginCount: 0, lockedUntil: null, lastLoginAt: now },
+    });
+    if (reset.count !== 1) {
+      throw new LocalAuthError("account_suspended", "account is suspended");
+    }
+    return createPersistentSession(
+      {
+        userId: user.id,
+        authMethod: "local",
+        now,
+      },
+      { client: tx, keyring },
+    );
   });
-
-  const session = await createPersistentSession(
-    {
-      userId: user.id,
-      authMethod: "local",
-      now,
-    },
-    { keyring: loadCredentialKeyring() },
-  );
   return {
     token: session.token,
     userId: session.userId,

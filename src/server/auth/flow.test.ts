@@ -10,6 +10,7 @@ import {
   type OIDCTokenResult,
 } from "./flow";
 import { memorySessionWriter } from "./memory-session-writer";
+import { AccountSuspendedError } from "./login-policy";
 import type { OIDCProvider, RequestSecurity } from "./provider";
 import {
   appSessionStorageKeysForTests,
@@ -247,5 +248,25 @@ describe("OIDC login flow", () => {
     expect(caught).toBeInstanceOf(OIDCFlowError);
     expect((caught as OIDCFlowError).code).toBe("authorization_response_rejected");
     expect((caught as Error).message).not.toContain("sensitive token");
+  });
+
+  it("maps a final Session-boundary suspension to a safe flow error", async () => {
+    const provider = fakeProvider();
+    const started = await begin(provider);
+    const sessions = {
+      ...memorySessionWriter,
+      async create(): Promise<never> {
+        throw new AccountSuspendedError();
+      },
+    };
+
+    await expect(
+      completeOIDCLogin(callbackURL(), started.transactionHandle, {
+        config,
+        provider,
+        sessions,
+        now: 10_001,
+      }),
+    ).rejects.toMatchObject({ code: "account_suspended" });
   });
 });

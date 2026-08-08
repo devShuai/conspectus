@@ -2,6 +2,7 @@ import { db } from "@/server/db";
 
 import type { SessionWriter } from "./flow";
 import { upsertCertusUser } from "./jit-user";
+import { AccountSuspendedError } from "./login-policy";
 import {
   createPersistentSession,
   deletePersistentSession,
@@ -15,7 +16,7 @@ import {
 export const dbSessionWriter: SessionWriter = {
   async create(input) {
     return db.$transaction(async (tx) => {
-      const { userId } = await upsertCertusUser(
+      const { userId, user } = await upsertCertusUser(
         {
           sub: input.identity.certusSub,
           legacySub: input.identity.legacySub,
@@ -28,6 +29,9 @@ export const dbSessionWriter: SessionWriter = {
         input.now ?? new Date(),
         tx,
       );
+      if (user.status === "suspended") {
+        throw new AccountSuspendedError();
+      }
       const created = await createPersistentSession(
         {
           userId,

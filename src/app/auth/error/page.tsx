@@ -5,6 +5,7 @@ const safeMessages: Record<string, string> = {
   invalid_state: "登录事务校验失败，请重新开始。",
   invalid_transaction: "登录事务已失效或已使用，请重新开始。",
   invalid_claims: "身份声明未通过校验。",
+  account_suspended: "账号已被停用，无法创建新的业务 Session。",
   authorization_response_rejected:
     "certus 返回的授权响应未通过校验。请确认 APP_URL 与 certus 登记的 redirect_uri 完全一致（含 localhost / 127.0.0.1），且 client secret 正确；开发环境可查看服务端日志 [auth/callback]。",
   unexpected_error: "认证暂时不可用，请稍后重试。",

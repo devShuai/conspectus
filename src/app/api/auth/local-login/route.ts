@@ -64,7 +64,12 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return response;
   } catch (cause) {
     if (cause instanceof LocalAuthError) {
-      const status = cause.code === "account_locked" ? 423 : 401;
+      const status =
+        cause.code === "account_locked"
+          ? 423
+          : cause.code === "account_suspended"
+            ? 403
+            : 401;
       return NextResponse.json(
         { ok: false, error: { code: cause.code, message: cause.message } },
         { status },
