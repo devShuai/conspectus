@@ -23,14 +23,26 @@ export async function GET(request: Request): Promise<NextResponse> {
       status: "active",
       collectorId: { not: null },
     },
-    include: { quota: { select: { metric: true, kind: true, unit: true } } },
+    include: {
+      quota: {
+        select: {
+          metric: true,
+          kind: true,
+          unit: true,
+          subscription: { select: { name: true } },
+        },
+      },
+    },
   });
 
+  // metric 用 binding 的 sourceKey（数据源侧指标 ID，§7.4 Binding 生命周期），
+  // CLI 只为匹配 collectorId 的条目生成读数
   return NextResponse.json({
     bindings: bindings.map((b) => ({
       bindingId: b.id,
       collectorId: b.collectorId,
-      metric: b.quota.metric,
+      subscriptionName: b.quota.subscription.name,
+      metric: b.sourceKey,
       kind: b.quota.kind,
       unit: b.quota.unit,
     })),

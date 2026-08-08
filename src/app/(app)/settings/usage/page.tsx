@@ -1,13 +1,16 @@
 import { redirect } from "next/navigation";
 
 import {
+  LocalBindingForm,
   ManualQuotaForm,
   ManualUsageUpdateForm,
 } from "@/components/settings/usage-forms";
 import { currentAppSession } from "@/server/auth/current-session";
 import { formatMoney } from "@/components/money";
 import { db } from "@/server/db";
+import { COLLECTOR_OPTIONS } from "@/server/usage/bindings";
 import {
+  createLocalBindingAction,
   createManualQuotaAction,
   updateManualUsageAction,
 } from "@/server/settings/actions";
@@ -27,9 +30,20 @@ export default async function UsageEntryPage() {
     db.usageQuota.findMany({
       where: { userId: session.userId },
       orderBy: { createdAt: "asc" },
-      include: { subscription: { select: { name: true } } },
+      include: {
+        subscription: { select: { name: true } },
+        bindings: {
+          select: { id: true, source: true, sourceKey: true, status: true },
+        },
+      },
     }),
   ]);
+
+  const collectors = COLLECTOR_OPTIONS.map((c) => ({
+    id: c.id,
+    displayName: c.displayName,
+    metricPrefix: c.metricPrefix,
+  }));
 
   return (
     <main className="shell">
@@ -57,10 +71,23 @@ export default async function UsageEntryPage() {
               {quota.valueCapturedAt &&
                 ` · ${quota.valueCapturedAt.toISOString().slice(0, 16).replace("T", " ")}`}
             </p>
+            {quota.bindings.length > 0 && (
+              <p className="usage-meta">
+                绑定：
+                {quota.bindings
+                  .map((b) => `${b.source}:${b.sourceKey}${b.status === "revoked" ? "（已撤销）" : ""}`)
+                  .join(" · ")}
+              </p>
+            )}
             <ManualUsageUpdateForm
               action={updateManualUsageAction}
               quotaId={quota.id}
               kind={quota.kind}
+            />
+            <LocalBindingForm
+              action={createLocalBindingAction}
+              quotaId={quota.id}
+              collectors={collectors}
             />
           </div>
         ))}

@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import ActionButton from "@/components/action-button";
 import { ConnectProviderForm } from "@/components/settings/provider-forms";
 import { currentAppSession } from "@/server/auth/current-session";
+import { db } from "@/server/db";
 import {
   connectProviderAction,
   disconnectProviderAction,
@@ -23,11 +24,16 @@ export default async function ConnectionsPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
 
-  const [connections, providers] = await Promise.all([
+  const [connections, providers, subscriptions] = await Promise.all([
     listProviderConnections(session.userId),
     Promise.resolve(
       listBalanceAdapters().map((p) => ({ id: p.id, displayName: p.displayName })),
     ),
+    db.subscription.findMany({
+      where: { userId: session.userId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
   ]);
   const providerNames = new Map(providers.map((p) => [p.id, p.displayName]));
 
@@ -78,7 +84,15 @@ export default async function ConnectionsPage() {
       </table>
 
       <h2>添加连接</h2>
-      <ConnectProviderForm action={connectProviderAction} providers={providers} />
+      {subscriptions.length === 0 ? (
+        <p className="muted">先创建一条订阅，连接才能归属到它。</p>
+      ) : (
+        <ConnectProviderForm
+          action={connectProviderAction}
+          providers={providers}
+          subscriptions={subscriptions}
+        />
+      )}
     </main>
   );
 }

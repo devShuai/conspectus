@@ -16,41 +16,95 @@ export function listConnectableProviders() {
 }
 
 /**
- * Create a ProviderConnection (channel A, design §7.4).
- * 凭证只在入库前经 AES-256-GCM 加密；envelope 存 credentialCipher，
- * iv/tag 同时落到独立列（schema 非空要求），明文绝不出库。
+ * Create a ProviderConnection **and its quota + provider binding** in one
+ * transaction（design §7.4 Binding 生命周期：connectProvider 成功时按所选 metric
+ * 创建 binding）。余额适配器统一 `metric="credit" / kind="balance"`；
+ * quota 找不到就建（balance 的 CHECK 要求 remainingValue 非空，先置 0、首同步覆盖），
+ * 首个 binding 成为权威来源（§6.2）。
  */
 export async function createProviderConnection(input: {
   userId: string;
   providerId: string;
   displayName: string;
   apiKey: string;
-}): Promise<{ connectionId: string }> {
+  subscriptionId: string;
+  unit: string;
+  scopes?: string[];
+}): Promise<{ connectionId: string; quotaId: string; bindingId: string }> {
   const provider = listConnectableProviders().find((p) => p.id === input.providerId);
   if (!provider) {
     throw new ConnectionError("unknown_provider");
+  }
+  const subscription = await db.subscription.findFirst({
+    where: { id: input.subscriptionId, userId: input.userId },
+    select: { id: true },
+  });
+  if (!subscription) {
+    throw new ConnectionError("subscription_not_found");
   }
 
   const keyring = loadCredentialKeyring();
   // §7.4 分列存储：cipher 列只放密文，IV/authTag/keyId 各归其列（#109）
   const parts = encryptCredentialParts(Buffer.from(input.apiKey, "utf8"), keyring);
+  const scopes = input.scopes ?? [];
 
-  const connection = await db.providerConnection.create({
-    data: {
-      userId: input.userId,
-      providerId: provider.id,
-      displayName: input.displayName,
-      credentialKeyId: parts.keyId,
-      credentialCipher: new Uint8Array(parts.ciphertext),
-      credentialIv: new Uint8Array(parts.iv),
-      credentialTag: new Uint8Array(parts.tag),
-      status: "active",
-      // 让下一次 usage-sync 立即拉取，而不是等 6 小时
-      nextSyncAt: new Date(),
-    },
-    select: { id: true },
+  return db.$transaction(async (tx) => {
+    const quota = await tx.usageQuota.upsert({
+      where: { subscriptionId_metric: { subscriptionId: subscription.id, metric: "credit" } },
+      create: {
+        userId: input.userId,
+        subscriptionId: subscription.id,
+        kind: "balance",
+        metric: "credit",
+        unit: input.unit,
+        remainingValue: 0, // CHECK 要求非空；nextSyncAt=now，首次同步即覆盖
+        resetCycle: "never",
+      },
+      update: {},
+      select: { id: true, authoritativeBindingId: true },
+    });
+
+    const connection = await tx.providerConnection.create({
+      data: {
+        userId: input.userId,
+        providerId: provider.id,
+        displayName: input.displayName,
+        credentialKeyId: parts.keyId,
+        credentialCipher: new Uint8Array(parts.ciphertext),
+        credentialIv: new Uint8Array(parts.iv),
+        credentialTag: new Uint8Array(parts.tag),
+        status: "active",
+        scopes,
+        nextSyncAt: new Date(),
+      },
+      select: { id: true },
+    });
+
+    const binding = await tx.usageBinding.upsert({
+      where: {
+        quotaId_source_sourceKey: { quotaId: quota.id, source: "provider", sourceKey: "credit" },
+      },
+      create: {
+        userId: input.userId,
+        quotaId: quota.id,
+        source: "provider",
+        sourceKey: "credit",
+        connectionId: connection.id,
+      },
+      // 重新连接同一平台：binding 指向新连接并复活，不另建行
+      update: { connectionId: connection.id, status: "active" },
+      select: { id: true },
+    });
+
+    if (!quota.authoritativeBindingId) {
+      await tx.usageQuota.update({
+        where: { id: quota.id },
+        data: { authoritativeBindingId: binding.id },
+      });
+    }
+
+    return { connectionId: connection.id, quotaId: quota.id, bindingId: binding.id };
   });
-  return { connectionId: connection.id };
 }
 
 export async function listProviderConnections(userId: string) {

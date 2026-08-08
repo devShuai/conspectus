@@ -69,6 +69,7 @@ export function decryptConnectionCredential(
     credentialCipher: Uint8Array;
     credentialIv: Uint8Array;
     credentialTag: Uint8Array;
+    scopes: string[];
   },
   keyring: CredentialKeyring = loadCredentialKeyring(),
 ): DecryptedCredential {
@@ -82,7 +83,7 @@ export function decryptConnectionCredential(
     },
     keyring,
   );
-  return { secret: plain.toString("utf8"), scopes: [] };
+  return { secret: plain.toString("utf8"), scopes: [...connection.scopes] };
 }
 
 export const BACKOFF_STEPS_MS = [1 * 3600_000, 4 * 3600_000, 12 * 3600_000];

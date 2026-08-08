@@ -97,12 +97,62 @@ export function ManualQuotaForm({
   );
 }
 
+export interface CollectorOption {
+  id: string;
+  displayName: string;
+  metricPrefix: string;
+}
+
+/** 为一张 quota 指定本地采集器（通道 B 绑定入口，design §7.4）。 */
+export function LocalBindingForm({
+  action,
+  quotaId,
+  collectors,
+}: Readonly<{ action: Action; quotaId: string; collectors: CollectorOption[] }>) {
+  const [state, formAction, pending] = useActionState(action, undefined);
+  const prefix = collectors[0]?.metricPrefix ?? "";
+  return (
+    <form className="form" action={formAction}>
+      <GlobalError state={state} />
+      <input type="hidden" name="quotaId" value={quotaId} />
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor={`collector-${quotaId}`}>采集器</label>
+          <select id={`collector-${quotaId}`} name="collectorId" required>
+            {collectors.map((c) => (
+              <option key={c.id} value={c.id}>
+                {c.displayName}
+              </option>
+            ))}
+          </select>
+          <FieldError state={state} name="collectorId" />
+        </div>
+        <div className="field">
+          <label htmlFor={`metric-${quotaId}`}>指标</label>
+          <input
+            id={`metric-${quotaId}`}
+            name="metric"
+            placeholder={`${prefix}…`}
+            required
+          />
+          <FieldError state={state} name="metric" />
+        </div>
+        <div className="field" style={{ justifyContent: "end" }}>
+          <button className="button secondary" type="submit" disabled={pending}>
+            {pending ? "绑定中…" : "绑定采集器"}
+          </button>
+          {state?.ok && <span className="tag">已绑定</span>}
+        </div>
+      </div>
+    </form>
+  );
+}
+
 export function ManualUsageUpdateForm({
   action,
   quotaId,
   kind,
-}: Readonly<{ action: Action; quotaId: string; kind: string }>) {
-  const [state, formAction, pending] = useActionState(action, undefined);
+}: Readonly<{ action: Action; quotaId: string; kind: string }>) {  const [state, formAction, pending] = useActionState(action, undefined);
   return (
     <form className="form" action={formAction}>
       <GlobalError state={state} />

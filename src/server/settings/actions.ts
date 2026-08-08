@@ -14,6 +14,7 @@ import {
   createProviderConnection,
   revokeProviderConnection,
 } from "@/server/usage/connections";
+import { BindingError, COLLECTOR_OPTIONS, createLocalBinding } from "@/server/usage/bindings";
 import { listBalanceAdapters } from "@/server/usage/providers/balance-adapters";
 import {
   ManualUsageError,
@@ -60,7 +61,20 @@ const KNOWN_ERRORS: Array<{
         ? "不支持的服务商"
         : r === "connection_not_found"
           ? "连接不存在或已删除"
-          : r,
+          : r === "subscription_not_found"
+            ? "订阅不存在"
+            : r,
+  },
+  {
+    match: (c) => (c instanceof BindingError ? c.reason : null),
+    message: (r) =>
+      r === "unknown_collector"
+        ? "未知的采集器"
+        : r === "metric_prefix_mismatch"
+          ? "指标需以该采集器的前缀开头（如 codex:tokens）"
+          : r === "quota_not_found"
+            ? "额度不存在"
+            : r,
   },
   {
     match: (c) => (c instanceof ManualUsageError ? c.reason : null),
@@ -194,6 +208,16 @@ const ConnectProviderSchema = z.object({
     .refine((id) => listBalanceAdapters().some((p) => p.id === id), "不支持的服务商"),
   displayName: z.string().trim().min(1, "显示名不能为空").max(60),
   apiKey: z.string().trim().min(8, "API Key 至少 8 位").max(512),
+  subscriptionId: z.string().trim().min(1, "请选择订阅"),
+  unit: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, "余额币种需为 3 位 ISO-4217 代码"),
+  scopes: z
+    .string()
+    .trim()
+    .transform((v) => (v === "" ? [] : v.split(/[,\s]+/).filter(Boolean))),
 });
 
 export async function connectProviderAction(
@@ -206,12 +230,16 @@ export async function connectProviderAction(
       providerId: formData.get("providerId") ?? "",
       displayName: formData.get("displayName") ?? "",
       apiKey: formData.get("apiKey") ?? "",
+      subscriptionId: formData.get("subscriptionId") ?? "",
+      unit: formData.get("unit") ?? "CNY",
+      scopes: formData.get("scopes") ?? "",
     });
     if (!parsed.success) {
       return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
     }
     await createProviderConnection({ userId, ...parsed.data });
     revalidatePath("/settings/connections");
+    revalidatePath("/usage");
     return { ok: true };
   } catch (cause) {
     return toActionError(cause);
@@ -339,6 +367,40 @@ export async function updateManualUsageAction(
       return { ok: false, error: { code: "validation", message: "至少填写一个读数" } };
     }
     await updateManualUsage({ userId, ...parsed.data });
+    revalidatePath("/settings/usage");
+    revalidatePath("/usage");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/* ---------- 本地采集绑定 ---------- */
+
+const LocalBindingSchema = z.object({
+  quotaId: z.string().trim().min(1, "缺少额度"),
+  collectorId: z
+    .string()
+    .trim()
+    .refine((id) => COLLECTOR_OPTIONS.some((c) => c.id === id), "未知的采集器"),
+  metric: z.string().trim().min(1, "指标不能为空").max(60),
+});
+
+export async function createLocalBindingAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = LocalBindingSchema.safeParse({
+      quotaId: formData.get("quotaId") ?? "",
+      collectorId: formData.get("collectorId") ?? "",
+      metric: formData.get("metric") ?? "",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    await createLocalBinding({ userId, ...parsed.data });
     revalidatePath("/settings/usage");
     revalidatePath("/usage");
     return { ok: true };

@@ -40,15 +40,19 @@ async function cleanup(userId: string) {
   await db.user.delete({ where: { id: userId } });
 }
 
-describe.skipIf(DISABLED)("provider connections (#71)", () => {
-  it("creates a connection whose credential round-trips through the envelope", async () => {
+describe.skipIf(DISABLED)("provider connections", () => {
+  it("creates connection + quota + binding in one transaction, credential round-trips", async () => {
     const user = await makeUser(unique("conn-1"));
+    const sub = await makeSubscription(user.id, "DeepSeek");
     const apiKey = `sk-test-${unique("key")}`;
-    const { connectionId } = await createProviderConnection({
+    const { connectionId, quotaId, bindingId } = await createProviderConnection({
       userId: user.id,
       providerId: "deepseek",
       displayName: "我的 DeepSeek",
       apiKey,
+      subscriptionId: sub.id,
+      unit: "CNY",
+      scopes: ["kimi:international"],
     });
 
     const conn = await db.providerConnection.findUniqueOrThrow({
@@ -56,11 +60,25 @@ describe.skipIf(DISABLED)("provider connections (#71)", () => {
     });
     expect(conn.status).toBe("active");
     expect(conn.nextSyncAt).not.toBeNull();
-    expect(decryptConnectionCredential(conn).secret).toBe(apiKey);
-    // 明文不落库：cipher 不等于原文，iv/tag 列齐备
+    expect(conn.scopes).toEqual(["kimi:international"]);
+
+    // 凭证分列（#109）：cipher 不含原文，iv/tag 齐备，按列解密回原文，scopes 透传（#89）
     expect(Buffer.from(conn.credentialCipher).toString("utf8")).not.toContain(apiKey);
     expect(conn.credentialIv.length).toBeGreaterThan(0);
     expect(conn.credentialTag.length).toBeGreaterThan(0);
+    const decrypted = decryptConnectionCredential(conn);
+    expect(decrypted.secret).toBe(apiKey);
+    expect(decrypted.scopes).toEqual(["kimi:international"]);
+
+    // quota（balance/credit，CHECK 要求 remainingValue 非空）+ provider binding + 首个即权威
+    const quota = await db.usageQuota.findUniqueOrThrow({ where: { id: quotaId } });
+    expect(quota.kind).toBe("balance");
+    expect(quota.metric).toBe("credit");
+    expect(quota.authoritativeBindingId).toBe(bindingId);
+    const binding = await db.usageBinding.findUniqueOrThrow({ where: { id: bindingId } });
+    expect(binding.source).toBe("provider");
+    expect(binding.sourceKey).toBe("credit");
+    expect(binding.connectionId).toBe(connectionId);
 
     await cleanup(user.id);
   });
@@ -73,20 +91,50 @@ describe.skipIf(DISABLED)("provider connections (#71)", () => {
         providerId: "no-such-provider",
         displayName: "x",
         apiKey: "sk-12345678",
+        subscriptionId: "00000000-0000-0000-0000-000000000000",
+        unit: "CNY",
       }),
     ).rejects.toThrow(ConnectionError);
+    await cleanup(user.id);
+  });
+
+  it("reconnect finds the existing quota and points the binding at the new connection", async () => {
+    const user = await makeUser(unique("conn-2b"));
+    const sub = await makeSubscription(user.id, "DeepSeek");
+    const { quotaId } = await createManualQuota({
+      userId: user.id,
+      subscriptionId: sub.id,
+      kind: "balance",
+      metric: "credit",
+      unit: "CNY",
+      remainingValue: 100,
+      resetCycle: "never",
+    });
+
+    const result = await createProviderConnection({
+      userId: user.id,
+      providerId: "deepseek",
+      displayName: "ds",
+      apiKey: "sk-12345678",
+      subscriptionId: sub.id,
+      unit: "CNY",
+    });
+    // find-or-create：同一条 quota，不另建；手动 quota 数值不动
+    expect(result.quotaId).toBe(quotaId);
+    const quota = await db.usageQuota.findUniqueOrThrow({ where: { id: quotaId } });
+    expect(quota.remainingValue?.toString()).toBe("100");
+    // 已有 manual 权威，provider binding 不抢（§6.2 首个 binding 才决定权威）
+    const manualBinding = await db.usageBinding.findFirstOrThrow({
+      where: { quotaId, source: "manual" },
+    });
+    expect(quota.authoritativeBindingId).toBe(manualBinding.id);
+
     await cleanup(user.id);
   });
 
   it("revoke disables the connection, revokes bindings, and falls back the authoritative source", async () => {
     const user = await makeUser(unique("conn-3"));
     const sub = await makeSubscription(user.id, "DeepSeek");
-    const { connectionId } = await createProviderConnection({
-      userId: user.id,
-      providerId: "deepseek",
-      displayName: "ds",
-      apiKey: "sk-12345678",
-    });
     const { quotaId } = await createManualQuota({
       userId: user.id,
       subscriptionId: sub.id,
@@ -98,21 +146,20 @@ describe.skipIf(DISABLED)("provider connections (#71)", () => {
     });
     await updateManualUsage({ userId: user.id, quotaId, remainingValue: 42 });
 
-    const providerBinding = await db.usageBinding.create({
-      data: {
-        userId: user.id,
-        quotaId,
-        source: "provider",
-        sourceKey: "balance",
-        connectionId,
-      },
+    const { connectionId, bindingId: providerBindingId } = await createProviderConnection({
+      userId: user.id,
+      providerId: "deepseek",
+      displayName: "ds",
+      apiKey: "sk-12345678",
+      subscriptionId: sub.id,
+      unit: "CNY",
     });
     const manualBinding = await db.usageBinding.findFirstOrThrow({
       where: { quotaId, source: "manual" },
     });
     await db.usageQuota.update({
       where: { id: quotaId },
-      data: { authoritativeBindingId: providerBinding.id },
+      data: { authoritativeBindingId: providerBindingId },
     });
 
     await revokeProviderConnection({ userId: user.id, connectionId });
@@ -122,7 +169,7 @@ describe.skipIf(DISABLED)("provider connections (#71)", () => {
     });
     expect(conn.status).toBe("disabled");
     const revoked = await db.usageBinding.findUniqueOrThrow({
-      where: { id: providerBinding.id },
+      where: { id: providerBindingId },
     });
     expect(revoked.status).toBe("revoked");
 
@@ -136,12 +183,6 @@ describe.skipIf(DISABLED)("provider connections (#71)", () => {
   it("clears the authoritative binding when no active candidate remains", async () => {
     const user = await makeUser(unique("conn-4"));
     const sub = await makeSubscription(user.id, "DeepSeek");
-    const { connectionId } = await createProviderConnection({
-      userId: user.id,
-      providerId: "deepseek",
-      displayName: "ds",
-      apiKey: "sk-12345678",
-    });
     const { quotaId } = await createManualQuota({
       userId: user.id,
       subscriptionId: sub.id,
@@ -151,16 +192,21 @@ describe.skipIf(DISABLED)("provider connections (#71)", () => {
       remainingValue: 10,
       resetCycle: "never",
     });
+    const { connectionId, bindingId: providerBindingId } = await createProviderConnection({
+      userId: user.id,
+      providerId: "deepseek",
+      displayName: "ds",
+      apiKey: "sk-12345678",
+      subscriptionId: sub.id,
+      unit: "CNY",
+    });
     await db.usageBinding.updateMany({
       where: { quotaId, source: "manual" },
       data: { status: "revoked" },
     });
-    const providerBinding = await db.usageBinding.create({
-      data: { userId: user.id, quotaId, source: "provider", sourceKey: "balance", connectionId },
-    });
     await db.usageQuota.update({
       where: { id: quotaId },
-      data: { authoritativeBindingId: providerBinding.id },
+      data: { authoritativeBindingId: providerBindingId },
     });
 
     await revokeProviderConnection({ userId: user.id, connectionId });
@@ -176,11 +222,14 @@ describe.skipIf(DISABLED)("provider connections (#71)", () => {
   it("refuses to revoke another user's connection", async () => {
     const owner = await makeUser(unique("conn-5a"));
     const other = await makeUser(unique("conn-5b"));
+    const sub = await makeSubscription(owner.id, "DeepSeek");
     const { connectionId } = await createProviderConnection({
       userId: owner.id,
       providerId: "deepseek",
       displayName: "ds",
       apiKey: "sk-12345678",
+      subscriptionId: sub.id,
+      unit: "CNY",
     });
     await expect(
       revokeProviderConnection({ userId: other.id, connectionId }),
