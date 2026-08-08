@@ -1,6 +1,6 @@
 import { db } from "@/server/db";
 import { identityGateOk } from "@/server/auth/identity-status";
-import { resolveWebhookTarget } from "./webhook-safe";
+import { postSafeWebhook } from "./webhook-safe";
 
 export const DIGEST_RETRY_MS = [60_000, 300_000, 1_800_000];
 const MAX_ATTEMPTS = DIGEST_RETRY_MS.length;
@@ -180,23 +180,17 @@ async function attemptDigestSend(
       return true;
     }
     if (channel.type === "webhook" && channel.destination) {
-      const target = await resolveWebhookTarget(channel.destination);
-      if (!target) return false;
       const signature = channel.secretCipher
         ? await signPayload(channel.secretCipher, JSON.stringify(payload))
         : "unsigned";
-      const response = await fetch(target, {
-        method: "POST",
+      return postSafeWebhook(channel.destination, {
         headers: {
           "content-type": "application/json",
           "x-conspectus-event-id": `digest_${digest.id}`,
           "x-conspectus-signature": signature,
         },
         body: JSON.stringify(payload),
-        redirect: "manual",
-        signal: AbortSignal.timeout(10_000),
       });
-      return response.ok;
     }
     return false;
   } catch {

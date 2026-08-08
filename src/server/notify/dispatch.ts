@@ -1,6 +1,7 @@
 import { db } from "@/server/db";
 import { identityGateOk } from "@/server/auth/identity-status";
 import { decryptCredential } from "@/server/auth/crypto";
+import { postSafeWebhook } from "./webhook-safe";
 
 export const RETRY_STEPS_MS = [60_000, 300_000, 1_800_000];
 const MAX_ATTEMPTS = RETRY_STEPS_MS.length;
@@ -165,27 +166,20 @@ async function attemptSend(
       data: event?.payload ?? {},
     };
     if (channel.type === "webhook" && channel.destination) {
-      const { resolveWebhookTarget } = await import("./webhook-safe");
-      const target = await resolveWebhookTarget(channel.destination);
-      if (!target) return false;
       const secret = channel.secretCipher
         ? decryptCredential(channel.secretCipher, undefined as never)
         : null;
       const signature = secret
         ? await hmacSha256(secret, JSON.stringify(payload))
         : "unsigned";
-      const response = await fetch(target, {
-        method: "POST",
+      return postSafeWebhook(channel.destination, {
         headers: {
           "content-type": "application/json",
           "x-conspectus-event-id": `evt_${eventId}`,
           "x-conspectus-signature": signature,
         },
         body: JSON.stringify(payload),
-        redirect: "manual",
-        signal: AbortSignal.timeout(10_000),
       });
-      return response.ok;
     }
     if (channel.type === "email") {
       const user = await db.user.findUnique({ where: { id: userId } });
