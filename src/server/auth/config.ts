@@ -11,15 +11,12 @@ export interface AuthConfig {
 type AuthEnvironment = Record<string, string | undefined>;
 
 export function loadAuthConfig(environment: AuthEnvironment = process.env): AuthConfig {
+  const appUrl = loadAppUrl(environment);
   const production = environment.NODE_ENV === "production";
-  const appUrl = requiredURL("APP_URL", environment.APP_URL, production);
   const issuer = requiredURL("CERTUS_ISSUER", environment.CERTUS_ISSUER, production);
   const clientId = requiredValue("CERTUS_CLIENT_ID", environment.CERTUS_CLIENT_ID);
   const clientSecret = requiredValue("CERTUS_CLIENT_SECRET", environment.CERTUS_CLIENT_SECRET);
 
-  if (appUrl.pathname !== "/" || appUrl.search || appUrl.hash) {
-    throw new Error("APP_URL must be an origin without a path, query, or fragment");
-  }
   if (issuer.search || issuer.hash) {
     throw new Error("CERTUS_ISSUER must not contain a query or fragment");
   }
@@ -33,6 +30,19 @@ export function loadAuthConfig(environment: AuthEnvironment = process.env): Auth
     clientSecret,
     secureCookies: appUrl.protocol === "https:",
   };
+}
+
+/** APP_URL is shared by certus and local auth, so loading it must not require certus config. */
+export function loadAppUrl(environment: AuthEnvironment = process.env): URL {
+  const appUrl = requiredURL(
+    "APP_URL",
+    environment.APP_URL,
+    environment.NODE_ENV === "production",
+  );
+  if (appUrl.pathname !== "/" || appUrl.search || appUrl.hash) {
+    throw new Error("APP_URL must be an origin without a path, query, or fragment");
+  }
+  return appUrl;
 }
 
 function requiredValue(name: string, value: string | undefined): string {

@@ -195,6 +195,18 @@ model EmailVerificationToken {
   @@map("email_verification_tokens")
 }
 
+model RateLimitCounter {
+  scope         String   @db.Text
+  keyHash       String   @db.Char(64)
+  windowStart   DateTime @db.Timestamptz
+  windowEndsAt  DateTime @db.Timestamptz
+  attemptCount  Int      @default(1)
+
+  @@id([scope, keyHash])
+  @@index([windowEndsAt])
+  @@map("rate_limit_counters")
+}
+
 model ReauthTransaction {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @db.Uuid

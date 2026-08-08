@@ -1,17 +1,48 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import { loadAppUrl } from "@/server/auth/config";
+import {
+  clientIpFromRequest,
+  isSameOriginAuthRequest,
+  tokenRateLimitKey,
+} from "@/server/auth/http-security";
+import { consumePasswordResetToken } from "@/server/auth/one-time-tokens";
+import { hashPassword } from "@/server/auth/password";
+import {
+  consumeRateLimits,
+  LOCAL_AUTH_RATE_LIMITS,
+  withRateLimitKey,
+} from "@/server/auth/rate-limit";
+import { db } from "@/server/db";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-import { consumePasswordResetToken } from "@/server/auth/one-time-tokens";
-import { hashPassword } from "@/server/auth/password";
-import { db } from "@/server/db";
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  if (!isSameOriginAuthRequest(request, loadAppUrl())) {
+    return NextResponse.json(
+      { ok: false, error: { code: "invalid_origin" } },
+      { status: 403 },
+    );
+  }
+
   const form = await request.formData();
   const token = String(form.get("token") ?? "");
   const password = String(form.get("password") ?? "");
+  const rateLimit = await consumeRateLimits([
+    withRateLimitKey(LOCAL_AUTH_RATE_LIMITS.resetIp, clientIpFromRequest(request)),
+    withRateLimitKey(LOCAL_AUTH_RATE_LIMITS.resetTarget, tokenRateLimitKey(token)),
+  ]);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { ok: false, error: { code: "rate_limited" } },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+      },
+    );
+  }
   if (!token || password.length < 12) {
     return NextResponse.json(
       { ok: false, error: { code: "invalid_input" } },

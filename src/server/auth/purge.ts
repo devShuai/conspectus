@@ -9,13 +9,14 @@ export async function runPurge(now: Date = new Date()): Promise<{
   sessions: number;
   reauthTransactions: number;
   backchannelReplays: number;
+  rateLimitCounters: number;
   usageSnapshots: number;
   usageRawCleared: number;
 }> {
   const cutoff180 = new Date(now.getTime() - 180 * 86_400_000);
   const cutoff30 = new Date(now.getTime() - 30 * 86_400_000);
 
-  const [sessions, reauthTransactions, backchannelReplays] = await Promise.all([
+  const [sessions, reauthTransactions, backchannelReplays, rateLimitCounters] = await Promise.all([
     db.session.deleteMany({
       where: {
         OR: [
@@ -31,6 +32,9 @@ export async function runPurge(now: Date = new Date()): Promise<{
     }),
     db.backchannelLogoutReplay.deleteMany({
       where: { expiresAt: { lt: now } },
+    }),
+    db.rateLimitCounter.deleteMany({
+      where: { windowEndsAt: { lt: now } },
     }),
   ]);
 
@@ -65,6 +69,7 @@ export async function runPurge(now: Date = new Date()): Promise<{
     sessions: sessions.count,
     reauthTransactions: reauthTransactions.count,
     backchannelReplays: backchannelReplays.count,
+    rateLimitCounters: rateLimitCounters.count,
     usageSnapshots: usageSnapshots.count,
     usageRawCleared: usageRawCleared.count,
   };

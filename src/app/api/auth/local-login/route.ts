@@ -2,43 +2,48 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/server/auth/cookies";
-import { loadAuthConfig } from "@/server/auth/config";
+import { loadAppUrl, loadAuthConfig } from "@/server/auth/config";
+import {
+  clientIpFromRequest,
+  emailRateLimitKey,
+  isSameOriginAuthRequest,
+} from "@/server/auth/http-security";
 import { loginLocalUser, LocalAuthError } from "@/server/auth/local-auth";
+import {
+  consumeRateLimits,
+  LOCAL_AUTH_RATE_LIMITS,
+  withRateLimitKey,
+} from "@/server/auth/rate-limit";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-/** Sliding-window IP limiter (process-local; DB-backed multi-instance is a M5 concern). */
-const ipAttempts = new Map<string, number[]>();
-const IP_WINDOW_MS = 10 * 60 * 1000;
-const IP_MAX_ATTEMPTS = 20;
-
-function ipAllowed(ip: string, now = Date.now()): boolean {
-  const window = (ipAttempts.get(ip) ?? []).filter((t) => now - t < IP_WINDOW_MS);
-  ipAttempts.set(ip, window);
-  return window.length < IP_MAX_ATTEMPTS;
-}
-
-function recordIpAttempt(ip: string, now = Date.now()): void {
-  const window = ipAttempts.get(ip) ?? [];
-  window.push(now);
-  ipAttempts.set(ip, window);
-}
-
 export async function POST(request: NextRequest): Promise<NextResponse> {
-  const config = loadAuthConfig();
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "unknown";
-  if (!ipAllowed(ip)) {
+  const appUrl = loadAppUrl();
+  if (!isSameOriginAuthRequest(request, appUrl)) {
     return NextResponse.json(
-      { ok: false, error: { code: "rate_limited" } },
-      { status: 429 },
+      { ok: false, error: { code: "invalid_origin" } },
+      { status: 403 },
     );
   }
-  recordIpAttempt(ip);
 
   const form = await request.formData();
   const email = String(form.get("email") ?? "");
   const password = String(form.get("password") ?? "");
+  const rateLimit = await consumeRateLimits([
+    withRateLimitKey(LOCAL_AUTH_RATE_LIMITS.loginIp, clientIpFromRequest(request)),
+    withRateLimitKey(LOCAL_AUTH_RATE_LIMITS.loginAccount, emailRateLimitKey(email)),
+  ]);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { ok: false, error: { code: "rate_limited" } },
+      {
+        status: 429,
+        headers: { "Retry-After": String(rateLimit.retryAfterSeconds) },
+      },
+    );
+  }
+  const config = loadAuthConfig();
 
   try {
     const login = await loginLocalUser({ email, password });
