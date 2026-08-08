@@ -1,7 +1,12 @@
 import type { BillingCycle, SubscriptionStatus, VendorCategory } from "@prisma/client";
 
 import { db } from "@/server/db";
-import { nextBillingDate } from "@/server/billing/cycle";
+import {
+  deriveAnchorDay,
+  nextBillingDate,
+  nextBillingOnOrAfter,
+} from "@/server/billing/cycle";
+import { localToday } from "@/server/billing/local-date";
 
 /** All business writes must carry the session-derived userId (never client input). */
 export type TenantUserId = string;
@@ -127,8 +132,11 @@ export async function createSubscription(
       input.startedAt.getUTCDate(),
     ),
   );
+  // 锚定日单独固化（§7.2）：月/季/年周期缺省时取 startedAt 的日，
+  // 绝不允许从 nextBillingAt 反推导致逐段漂移（#104）
+  const anchorDay = deriveAnchorDay(input.billingCycle, startedAt, input.anchorDay);
   const next = nextBillingDate(startedAt, input.billingCycle, {
-    anchorDay: input.anchorDay,
+    anchorDay,
     cycleDays: input.cycleDays,
   });
 
@@ -143,7 +151,7 @@ export async function createSubscription(
       currency: input.currency,
       billingCycle: input.billingCycle,
       cycleDays: input.cycleDays ?? null,
-      anchorDay: input.anchorDay ?? null,
+      anchorDay,
       startedAt,
       nextBillingAt: next,
       trialEndsAt: input.trialEndsAt ?? null,
@@ -186,13 +194,34 @@ export async function updateSubscription(
     trialEndsAt: input.trialEndsAt !== undefined ? input.trialEndsAt : existing.trialEndsAt,
     vendorId: input.vendorId !== undefined ? input.vendorId : existing.vendorId,
   } as CreateSubscriptionInput;
+  // 顺手回填历史行的锚定日（月/季/年缺省取 startedAt 的日，显式值不动）
+  merged.anchorDay = deriveAnchorDay(merged.billingCycle, merged.startedAt, merged.anchorDay);
   validateSubscriptionInput(merged);
   await assertVendorAllowed(userId, merged.vendorId);
 
-  const next = nextBillingDate(merged.startedAt, merged.billingCycle, {
-    anchorDay: merged.anchorDay,
-    cycleDays: merged.cycleDays,
-  });
+  // 只有账期四要素变化、或 paused → active 恢复时才重算（§7.2 / #104）；
+  // 重算一律推到「下一个未来账期」，绝不落过去 —— 追补只服务任务停摆，
+  // 用户编辑与恢复都不该被追成一串 pending。
+  const cycleFieldsChanged =
+    merged.billingCycle !== existing.billingCycle ||
+    merged.anchorDay !== existing.anchorDay ||
+    merged.cycleDays !== existing.cycleDays ||
+    merged.startedAt.getTime() !== existing.startedAt.getTime();
+  const resumed = existing.status === "paused" && merged.status === "active";
+
+  let nextBillingAt = existing.nextBillingAt;
+  if (resumed || cycleFieldsChanged) {
+    const user = await db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    nextBillingAt = nextBillingOnOrAfter(
+      localToday(new Date(), user.timezone),
+      merged.startedAt,
+      merged.billingCycle,
+      { anchorDay: merged.anchorDay, cycleDays: merged.cycleDays },
+    );
+  }
 
   return db.subscription.update({
     where: { id: existing.id },
@@ -205,7 +234,7 @@ export async function updateSubscription(
       billingCycle: merged.billingCycle,
       cycleDays: merged.cycleDays ?? null,
       anchorDay: merged.anchorDay ?? null,
-      nextBillingAt: next,
+      nextBillingAt,
       trialEndsAt: merged.trialEndsAt ?? null,
       autoRenew: input.autoRenew ?? existing.autoRenew,
       tags: input.tags ?? existing.tags,
@@ -224,9 +253,25 @@ export async function changeSubscriptionStatus(
   if (status === "trial" && !existing.trialEndsAt) {
     throw new TenantError("invalid_input", "trial requires trialEndsAt");
   }
+
+  // paused → active：从恢复日推到下一个未来账期，绝不补账（§7.2 / #104）
+  let nextBillingAt: Date | null | undefined;
+  if (existing.status === "paused" && status === "active") {
+    const user = await db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: { timezone: true },
+    });
+    nextBillingAt = nextBillingOnOrAfter(
+      localToday(new Date(), user.timezone),
+      existing.startedAt,
+      existing.billingCycle,
+      { anchorDay: existing.anchorDay, cycleDays: existing.cycleDays },
+    );
+  }
+
   return db.subscription.update({
     where: { id: existing.id },
-    data: { status },
+    data: { status, ...(nextBillingAt !== undefined ? { nextBillingAt } : {}) },
   });
 }
 

@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
+import { nextBillingOnOrAfter } from "./cycle";
+import { localToday } from "./local-date";
+import { runRenewals } from "./renewals";
 import {
+  changeSubscriptionStatus,
   createPrivateVendor,
   createSubscription,
   deletePrivateVendor,
@@ -170,5 +174,89 @@ describe.skipIf(DISABLED)("tenant-safe subscription CRUD", () => {
     await db.vendor.delete({ where: { id: privateVendor.id } });
     await db.user.delete({ where: { id: a.id } });
     await db.user.delete({ where: { id: b.id } });
+  });
+});
+
+describe.skipIf(DISABLED)("nextBillingAt semantics (#104)", () => {
+  it("persists derived anchorDay on create; unrelated edits never recalculate", async () => {
+    const user = await makeUser(uniqueSub("nb-1"));
+    const sub = await createSubscription(user.id, {
+      name: "Netflix",
+      price: 138,
+      currency: "CNY",
+      billingCycle: "monthly",
+      startedAt: new Date("2026-01-31T00:00:00Z"),
+      status: "active",
+    });
+    // 锚定日从 startedAt 固化（旧 bug：每段从 cursor 反推，1/31 会退化成 28 号）
+    expect(sub.anchorDay).toBe(31);
+    expect(sub.nextBillingAt).toEqual(new Date("2026-02-28T00:00:00Z"));
+
+    // 已推进的 next 被重置回落是旧 bug 的直接后果：改 notes 不得动日期
+    await db.subscription.update({
+      where: { id: sub.id },
+      data: { nextBillingAt: new Date("2026-08-31T00:00:00Z") },
+    });
+    const updated = await updateSubscription(user.id, sub.id, { notes: "只改备注" });
+    expect(updated.nextBillingAt).toEqual(new Date("2026-08-31T00:00:00Z"));
+
+    await db.subscription.delete({ where: { id: sub.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("recomputes to the next future period only when cycle fields change", async () => {
+    const user = await makeUser(uniqueSub("nb-2"));
+    const sub = await createSubscription(user.id, {
+      name: "Claude",
+      price: 20,
+      currency: "USD",
+      billingCycle: "monthly",
+      startedAt: new Date("2026-01-15T00:00:00Z"),
+      status: "active",
+    });
+    const updated = await updateSubscription(user.id, sub.id, { billingCycle: "yearly" });
+    const expected = nextBillingOnOrAfter(
+      new Date(),
+      new Date("2026-01-15T00:00:00Z"),
+      "yearly",
+      { anchorDay: 15 },
+    );
+    expect(updated.nextBillingAt).toEqual(expected);
+    // 重算绝不落过去 —— 落过去会被 renewals 追补成伪造 pending
+    expect(updated.nextBillingAt!.getTime()).toBeGreaterThanOrEqual(
+      localToday(new Date(), "Asia/Shanghai").getTime(),
+    );
+
+    await db.subscription.delete({ where: { id: sub.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("resume from pause advances to the next future period; renewals backfills nothing", async () => {
+    const user = await makeUser(uniqueSub("nb-3"));
+    const sub = await createSubscription(user.id, {
+      name: "Paused",
+      price: 50,
+      currency: "CNY",
+      billingCycle: "monthly",
+      startedAt: new Date("2026-01-15T00:00:00Z"),
+      status: "paused",
+    });
+    await changeSubscriptionStatus(user.id, sub.id, "active");
+    const resumed = await getSubscription(user.id, sub.id);
+    expect(resumed.nextBillingAt).not.toBeNull();
+    expect(resumed.nextBillingAt!.getUTCDate()).toBe(15);
+    expect(resumed.nextBillingAt!.getTime()).toBeGreaterThanOrEqual(
+      localToday(new Date(), "Asia/Shanghai").getTime(),
+    );
+
+    // 恢复后 renewals 不应追补任何 pending（旧行为：落过去的 next 触发批量伪造）
+    await runRenewals();
+    const pendings = await db.billingRecord.findMany({
+      where: { userId: user.id, subscriptionId: sub.id },
+    });
+    expect(pendings.length).toBe(0);
+
+    await db.subscription.delete({ where: { id: sub.id } });
+    await db.user.delete({ where: { id: user.id } });
   });
 });
