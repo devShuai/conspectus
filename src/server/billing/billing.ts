@@ -2,6 +2,8 @@ import type { Prisma } from "@prisma/client";
 
 import { db } from "@/server/db";
 
+import { lockUserInTx } from "./user-lock";
+
 export class BillingError extends Error {
   constructor(
     public readonly code:
@@ -68,6 +70,8 @@ async function recordPaidChargeImpl(
   input: RecordPaymentInput,
   client: Prisma.TransactionClient,
 ): Promise<RecordResult> {
+  // 与 rebase 切换共用用户级锁（§6.2）：写投影与「统计缺失并切币种」串行化
+  await lockUserInTx(client, input.userId);
   const sub = await client.subscription.findFirst({
     where: { id: input.subscriptionId, userId: input.userId },
   });
@@ -116,6 +120,7 @@ async function recordRefundImpl(
   input: RecordRefundInput,
   client: Prisma.TransactionClient,
 ): Promise<RecordResult> {
+  await lockUserInTx(client, input.userId);
   const original = await client.billingRecord.findFirst({
     where: {
       id: input.originalRecordId,
@@ -186,6 +191,7 @@ export async function confirmPendingCharge(
   input: { amount?: number; billedAt?: Date },
 ): Promise<RecordResult> {
   return db.$transaction(async (tx) => {
+    await lockUserInTx(tx, userId);
     const record = await tx.billingRecord.findFirst({
       where: { id: billingRecordId, userId, status: "pending", recordType: "charge" },
     });

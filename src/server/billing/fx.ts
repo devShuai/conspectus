@@ -1,3 +1,5 @@
+import type { PrismaClient } from "@prisma/client";
+
 import { db } from "@/server/db";
 
 export class FxError extends Error {
@@ -94,8 +96,9 @@ export async function collectFxPairs(): Promise<Array<{ base: string; quote: str
 export async function countMissingProjections(
   userId: string,
   baseCurrency: string,
+  client: Pick<PrismaClient, "$queryRaw"> = db,
 ): Promise<number> {
-  const missing = await db.$queryRaw<Array<{ count: bigint }>>`
+  const missing = await client.$queryRaw<Array<{ count: bigint }>>`
     SELECT COUNT(*)::bigint AS count
     FROM "billing_records" br
     WHERE br."userId" = ${userId}::uuid
