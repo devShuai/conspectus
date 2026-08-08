@@ -2,6 +2,7 @@ import { db } from "@/server/db";
 import { encryptCredentialParts, loadCredentialKeyring } from "@/server/auth/crypto";
 
 import { listBalanceAdapters } from "./providers/balance-adapters";
+import { getProvider } from "./sync";
 
 export class ConnectionError extends Error {
   constructor(public readonly reason: string) {
@@ -31,7 +32,7 @@ export async function createProviderConnection(input: {
   unit: string;
   scopes?: string[];
 }): Promise<{ connectionId: string; quotaId: string; bindingId: string }> {
-  const provider = listConnectableProviders().find((p) => p.id === input.providerId);
+  const provider = getProvider(input.providerId);
   if (!provider) {
     throw new ConnectionError("unknown_provider");
   }
@@ -172,7 +173,8 @@ export async function revokeProviderConnection(input: {
           status: "active",
           source: { in: ["provider", "local_agent", "manual"] },
         },
-        // 自动来源（provider/local_agent）优先于手动
+        // 自动来源优先于手动（§6.2）：PG 枚举按声明序 manual < provider < local_agent，
+        // desc 得 local_agent → provider → manual，两种自动来源都排在 manual 之前
         orderBy: [{ source: "desc" }, { createdAt: "asc" }],
       });
       if (!fallback) {

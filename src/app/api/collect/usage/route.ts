@@ -61,13 +61,17 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid_readings" }, { status: 400 });
   }
 
-  const result = await ingestReadings(user.id, readings.data);
+  // deviceId 随快照固化（§7.4 多设备与乱序：同采集时间不同设备用 Snapshot ID 决胜）
+  const result = await ingestReadings(user.id, readings.data, new Date(), {
+    deviceId: gate.deviceId,
+  });
   await db.collectorDevice.update({
     where: { id: gate.deviceId },
     data: { lastSeenAt: new Date(), lastReportStatus: "ok" },
   });
+  // 一律 202 { accepted, rejected[] }（§7.4 上报流程），零接受不是错误
   return NextResponse.json(
     { accepted: result.accepted, rejected: result.rejected },
-    { status: result.accepted > 0 ? 202 : 400 },
+    { status: 202 },
   );
 }

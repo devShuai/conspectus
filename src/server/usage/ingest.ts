@@ -18,13 +18,15 @@ export async function ingestReadings(
   userId: string,
   readings: UsageReading[],
   now: Date = new Date(),
+  options: { deviceId?: string | null } = {},
 ): Promise<IngestResult> {
   const rejected: IngestResult["rejected"] = [];
+  const deviceId = options.deviceId ?? null;
 
   for (let index = 0; index < readings.length; index++) {
     const reading = readings[index];
     try {
-      await ingestOne(userId, reading, now);
+      await ingestOne(userId, reading, now, deviceId);
     } catch (cause) {
       rejected.push({
         index,
@@ -36,7 +38,12 @@ export async function ingestReadings(
   return { accepted: readings.length - rejected.length, rejected };
 }
 
-async function ingestOne(userId: string, reading: UsageReading, now: Date): Promise<void> {
+async function ingestOne(
+  userId: string,
+  reading: UsageReading,
+  now: Date,
+  deviceId: string | null,
+): Promise<void> {
   const binding = await db.usageBinding.findUnique({
     where: { id: reading.bindingId },
     include: { quota: true },
@@ -71,7 +78,7 @@ async function ingestOne(userId: string, reading: UsageReading, now: Date): Prom
           userId,
           quotaId: quota.id,
           bindingId: binding.id,
-          deviceId: null,
+          deviceId,
           capturedAt,
           kindAtCapture: quota.kind,
           unitAtCapture: quota.unit,
@@ -91,14 +98,14 @@ async function ingestOne(userId: string, reading: UsageReading, now: Date): Prom
       skipDuplicates: true,
     });
     const snapshot = await tx.usageSnapshot.findFirst({
-      where: { bindingId: binding.id, deviceId: null, capturedAt },
+      where: { bindingId: binding.id, deviceId, capturedAt },
       select: { id: true },
     });
     if (!snapshot) throw new IngestError("snapshot_not_persisted");
 
     // Only fields the reading actually carries are written; falling back to the
     // values read outside the transaction would let a stale limit overwrite a
-    // concurrent change.
+    // concurrent change. provider/local 带新 period 时以数据源周期为准（§7.4）。
     const nextValues: Record<string, unknown> = {
       valueCapturedAt: capturedAt,
       valueSnapshotId: snapshot.id,
@@ -111,6 +118,8 @@ async function ingestOne(userId: string, reading: UsageReading, now: Date): Prom
       nextValues.remainingValue = toDecimal(reading.remainingValue);
     }
     if (reading.limitValue !== undefined) nextValues.limitValue = toDecimal(reading.limitValue);
+    if (reading.periodStart !== undefined) nextValues.periodStart = new Date(reading.periodStart);
+    if (reading.periodEnd !== undefined) nextValues.periodEnd = new Date(reading.periodEnd);
 
     // Database CAS (design §7.4 / R8-USAGE-CAS). Comparing in JS against a
     // quota read *outside* this transaction is check-then-act: two concurrent

@@ -347,8 +347,12 @@ describe.skipIf(DISABLED)("POST /api/collect/usage", () => {
       }),
     );
 
-    // signature is valid, but the binding is not this tenant's
-    expect(res.status).toBe(400);
+    // signature is valid, but the binding is not this tenant's：
+    // §7.4 一律 202 { accepted, rejected[] }，越权逐条拒绝而不是整包 400
+    expect(res.status).toBe(202);
+    const result = (await res.json()) as { accepted: number; rejected: unknown[] };
+    expect(result.accepted).toBe(0);
+    expect(result.rejected.length).toBeGreaterThan(0);
     expect(await db.usageSnapshot.count({ where: { quotaId: quota.id } })).toBe(0);
   });
 });
