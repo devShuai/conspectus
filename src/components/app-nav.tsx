@@ -3,11 +3,9 @@ import Link from "next/link";
 const NAV = [
   { href: "/", label: "总览" },
   { href: "/subscriptions", label: "订阅" },
+  { href: "/calendar", label: "日历" },
   { href: "/usage", label: "用量" },
-  { href: "/notifications", label: "通知" },
-  { href: "/devices", label: "设备" },
   { href: "/settings", label: "设置" },
-  { href: "/me", label: "我的" },
 ];
 
 /** Mobile bottom tab bar + desktop top nav (PWA, design §7.9). */

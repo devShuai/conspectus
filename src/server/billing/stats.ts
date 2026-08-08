@@ -149,3 +149,135 @@ export async function billingCalendar(
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([, day]) => day);
 }
+
+/** 最新可用汇率（≤ 今天）；pending 与年化折算共用（§7.3：预估口径用当日最新汇率）。 */
+async function latestRateResolver(baseCurrency: string, currencies: string[]) {
+  const rates = new Map<string, number>();
+  for (const currency of currencies) {
+    if (currency === baseCurrency) {
+      rates.set(currency, 1);
+      continue;
+    }
+    const row = await db.exchangeRate.findFirst({
+      where: { base: currency, quote: baseCurrency },
+      orderBy: { date: "desc" },
+    });
+    if (row) rates.set(currency, Number(row.rate));
+  }
+  return (currency: string): number | null => rates.get(currency) ?? null;
+}
+
+export interface TrendMonth {
+  month: string; // "2026-08"（UTC，与 dashboardStats 同口径）
+  paid: number; // 实际已付：paid 的 charge+ / refund-（BillingConversion 固化投影）
+  pending: number; // 预计将付：pending 按最新汇率估算
+  pendingUncovered: boolean; // 有 pending 缺汇率被跳过（绝不静默当 0）
+}
+
+/** 近 N 个月趋势（design §7.8）：实际已付与预计将付两个序列。 */
+export async function monthlyTrend(userId: string, months = 12): Promise<TrendMonth[]> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { baseCurrency: true },
+  });
+  const baseCurrency = user?.baseCurrency ?? "CNY";
+
+  const now = new Date();
+  const windowStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - (months - 1), 1));
+
+  const paidRows = await db.$queryRaw<Array<{ month: string; total: number }>>`
+    SELECT to_char(date_trunc('month', br."billedAt"), 'YYYY-MM') AS month,
+           SUM(bc."signedAmountInBase")::float8 AS total
+    FROM "billing_records" br
+    JOIN "billing_conversions" bc
+      ON bc."billingRecordId" = br.id AND bc."baseCurrency" = ${baseCurrency}
+    WHERE br."userId" = ${userId}::uuid
+      AND br."status" = 'paid'
+      AND br."billedAt" >= ${windowStart}
+    GROUP BY 1
+  `;
+
+  const pendingRecords = await db.billingRecord.findMany({
+    where: { userId, status: "pending" },
+    select: { amount: true, currency: true, billedAt: true, recordType: true },
+  });
+  const resolveRate = await latestRateResolver(
+    baseCurrency,
+    [...new Set(pendingRecords.map((r) => r.currency))],
+  );
+
+  const byMonth = new Map<string, TrendMonth>();
+  const slot = (key: string): TrendMonth => {
+    let entry = byMonth.get(key);
+    if (!entry) {
+      entry = { month: key, paid: 0, pending: 0, pendingUncovered: false };
+      byMonth.set(key, entry);
+    }
+    return entry;
+  };
+  for (const row of paidRows) {
+    slot(row.month).paid = row.total;
+  }
+  for (const record of pendingRecords) {
+    const key = record.billedAt.toISOString().slice(0, 7);
+    const rate = resolveRate(record.currency);
+    const entry = slot(key);
+    if (rate === null) {
+      entry.pendingUncovered = true;
+      continue;
+    }
+    const signed = Number(record.amount) * rate * (record.recordType === "refund" ? -1 : 1);
+    entry.pending += signed;
+  }
+
+  const out: TrendMonth[] = [];
+  for (let i = months - 1; i >= 0; i--) {
+    const ref = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() - i, 1));
+    const key = ref.toISOString().slice(0, 7);
+    out.push(slot(key));
+  }
+  return out;
+}
+
+export interface CategorySlice {
+  category: string;
+  annualized: number; // 年化成本（trial + active，最新汇率折算到本位币）
+}
+
+/** 分类占比（design §7.8）：按 Vendor.category 的年化成本。 */
+export async function categoryBreakdown(
+  userId: string,
+): Promise<{ slices: CategorySlice[]; uncovered: boolean }> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { baseCurrency: true },
+  });
+  const baseCurrency = user?.baseCurrency ?? "CNY";
+
+  const subs = await db.subscription.findMany({
+    where: { userId, status: { in: ["trial", "active"] } },
+    include: { vendor: { select: { category: true } } },
+  });
+  const resolveRate = await latestRateResolver(
+    baseCurrency,
+    [...new Set(subs.map((s) => s.currency))],
+  );
+
+  const totals = new Map<string, number>();
+  let uncovered = false;
+  for (const sub of subs) {
+    const rate = resolveRate(sub.currency);
+    if (rate === null) {
+      uncovered = true;
+      continue;
+    }
+    const annualized = annualizedCost(Number(sub.price), sub.billingCycle, sub.cycleDays) * rate;
+    const category = sub.vendor?.category ?? "uncategorized";
+    totals.set(category, (totals.get(category) ?? 0) + annualized);
+  }
+
+  const slices = [...totals.entries()]
+    .map(([category, annualized]) => ({ category, annualized }))
+    .sort((a, b) => b.annualized - a.annualized);
+  return { slices, uncovered };
+}

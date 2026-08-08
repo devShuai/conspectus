@@ -19,6 +19,7 @@ const SECTIONS = [
   { href: "/settings/data", label: "数据", note: "CSV 导出（需重新认证）与导入" },
   { href: "/settings/notifications", label: "通知", note: "规则与渠道、不可投递原因" },
   { href: "/settings/devices", label: "采集设备", note: "本地采集器的设备与撤销" },
+  { href: "/me", label: "我的", note: "账号信息与退出登录" },
 ];
 
 export default async function SettingsPage() {

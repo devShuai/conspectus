@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import Link from "next/link";
 
 import { currentAppSession } from "@/server/auth/current-session";
 import { listSubscriptions } from "@/server/billing/subscriptions";
@@ -44,6 +45,9 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+      <p className="field-hint">
+        <Link href="/analytics">查看近 12 个月趋势与分类占比 →</Link>
+      </p>
 
       <h2>订阅列表</h2>
       <table className="data-table">
