@@ -71,6 +71,8 @@ enum BillingCycle {
 model User {
   id            String   @id @default(uuid()) @db.Uuid
   certusSub     String?  @unique @db.Text
+  /// Pre-#94 digest; matched once on login, then cleared. Never written anew.
+  certusSubLegacy String? @unique @db.Text
   email         String?  @db.Text
   emailVerifiedAt DateTime?
   emailVerificationSource EmailVerificationSource?

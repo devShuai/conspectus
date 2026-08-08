@@ -2,7 +2,7 @@ import { timingSafeEqual } from "node:crypto";
 
 import { db } from "@/server/db";
 
-import { localUserIdFromClaims } from "./claims";
+import { certusSubjectFromClaims } from "./claims";
 import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
 import {
@@ -179,7 +179,7 @@ export async function completeReauthFlow(input: {
 
   let derivedSub: string;
   try {
-    derivedSub = localUserIdFromClaims(claims, config, transaction.nonce);
+    derivedSub = certusSubjectFromClaims(claims, config, transaction.nonce);
   } catch (cause) {
     return fail("invalid_claims", { cause });
   }

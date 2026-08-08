@@ -3,7 +3,10 @@ import type { Prisma } from "@prisma/client";
 import { db } from "@/server/db";
 
 export interface CertusIdentityClaims {
+  /** certus's raw `sub` (design §6.2). */
   sub: string;
+  /** Pre-#94 digest of the same subject, used once to adopt legacy rows. */
+  legacySub?: string;
   email?: string;
   emailVerified?: boolean;
   idTokenIat?: number;
@@ -14,6 +17,9 @@ export interface CertusIdentityClaims {
 /**
  * JIT provision / sync a local User row for a certus subject.
  * - Lookup is by certusSub ONLY; email is a snapshot and never merges accounts.
+ * - Rows written before #94 hold a digest; they are matched once via
+ *   certusSubLegacy and upgraded to the raw sub in place, so a stored digest
+ *   never causes a second account to be provisioned for the same person.
  * - Email snapshot: on address change, clear any prior verification proof,
  *   then (re)establish from this login's email_verified claim.
  * - Never writes User.suspended from token/flow errors.
@@ -24,9 +30,21 @@ export async function upsertCertusUser(
   client?: Prisma.TransactionClient,
 ): Promise<{ userId: string; user: NonNullable<Awaited<ReturnType<typeof db.user.findUnique>>> }> {
   const tx = client ?? db;
-  const existing = await tx.user.findUnique({
+  let existing = await tx.user.findUnique({
     where: { certusSub: claims.sub },
   });
+
+  if (!existing && claims.legacySub) {
+    const legacy = await tx.user.findUnique({
+      where: { certusSubLegacy: claims.legacySub },
+    });
+    if (legacy) {
+      existing = await tx.user.update({
+        where: { id: legacy.id },
+        data: { certusSub: claims.sub, certusSubLegacy: null },
+      });
+    }
+  }
 
   if (!existing) {
     const created = await tx.user.create({

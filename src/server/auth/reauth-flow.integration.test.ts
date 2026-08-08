@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
 
-import { localUserIdFromClaims, type OIDCClaims } from "./claims";
+import { certusSubjectFromClaims, type OIDCClaims } from "./claims";
 import type { AuthConfig } from "./config";
 import type { OIDCProvider } from "./provider";
 import {
@@ -70,7 +70,7 @@ function unique(prefix: string): string {
 }
 
 async function makeUserForClaims(claims: OIDCClaims) {
-  const derivedSub = localUserIdFromClaims(claims, config, "test-nonce");
+  const derivedSub = certusSubjectFromClaims(claims, config, "test-nonce");
   return db.user.create({
     data: {
       certusSub: derivedSub,

@@ -1,6 +1,10 @@
 import { timingSafeEqual } from "node:crypto";
 
-import { localUserIdFromClaims, type OIDCClaims } from "./claims";
+import {
+  certusSubjectFromClaims,
+  legacyDerivedSubject,
+  type OIDCClaims,
+} from "./claims";
 import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
 import {
@@ -33,7 +37,10 @@ export interface OIDCTokenResult {
 
 /** Session creation side effect of a completed login; DB-backed in prod, in-memory in tests. */
 export interface CertusIdentitySnapshot {
+  /** certus's raw `sub` (design §6.2). */
   certusSub: string;
+  /** Pre-#94 digest of the same subject; adopts a legacy row once. */
+  legacySub?: string;
   sid?: string;
   email?: string;
   emailVerified?: boolean;
@@ -126,7 +133,7 @@ export async function completeOIDCLogin(
 
   let userId: string;
   try {
-    userId = localUserIdFromClaims(tokens.claims, config, transaction.nonce);
+    userId = certusSubjectFromClaims(tokens.claims, config, transaction.nonce);
   } catch (cause) {
     throw new OIDCFlowError("invalid_claims", { cause });
   }
@@ -144,6 +151,7 @@ export async function completeOIDCLogin(
   const session = await sessions.create({
     identity: {
       certusSub: userId,
+      legacySub: legacyDerivedSubject(config.issuerIdentifier, userId),
       sid,
       email,
       emailVerified,

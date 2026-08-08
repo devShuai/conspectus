@@ -11,7 +11,16 @@ export class OIDCClaimsError extends Error {
   }
 }
 
-export function localUserIdFromClaims(
+/**
+ * Validate the ID Token claims and return certus's **raw** `sub`.
+ *
+ * design.md §6.2 defines `User.certusSub` as certus's `sub` itself. It was
+ * previously stored as a derived digest, which silently broke two contracts:
+ * Back-Channel Logout compares the raw sub from the logout_token, and the
+ * status endpoint takes the raw sub as a path parameter. A digest cannot be
+ * reversed, so those call sites had no way back to the real value.
+ */
+export function certusSubjectFromClaims(
   claims: OIDCClaims,
   config: AuthConfig,
   expectedNonce: string,
@@ -30,6 +39,15 @@ export function localUserIdFromClaims(
     throw new OIDCClaimsError("invalid_claims");
   }
 
+  return subject;
+}
+
+/**
+ * The digest that used to be written to `certusSub`. Kept only so a row
+ * created before #94 can be matched once and upgraded in place on the next
+ * login; nothing new is ever stored with it.
+ */
+export function legacyDerivedSubject(issuer: string, subject: string): string {
   const digest = createHash("sha256")
     .update(issuer, "utf8")
     .update("\0", "utf8")

@@ -18,6 +18,7 @@ export const dbSessionWriter: SessionWriter = {
       const { userId } = await upsertCertusUser(
         {
           sub: input.identity.certusSub,
+          legacySub: input.identity.legacySub,
           sid: input.identity.sid,
           email: input.identity.email,
           emailVerified: input.identity.emailVerified,

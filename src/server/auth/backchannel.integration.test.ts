@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
+import { legacyDerivedSubject } from "./claims";
+import { upsertCertusUser } from "./jit-user";
 import { runPurge } from "./purge";
 import {
   createPersistentSession,
@@ -141,5 +143,53 @@ describe.skipIf(DISABLED)("backchannel replay + purge integration", () => {
 
     await db.session.deleteMany({ where: { userId: user.id } });
     await db.user.delete({ where: { id: user.id } });
+  });
+});
+
+describe.skipIf(DISABLED)("certusSub stores certus's raw sub (#94)", () => {
+  it("sub fallback deletes sessions for the raw sub from the logout_token", async () => {
+    // Before #94 the column held a digest, so this lookup never matched and the
+    // sub fallback silently deleted nothing.
+    const rawSub = uniqueSub("raw-sub");
+    const user = await db.user.create({
+      data: {
+        certusSub: rawSub,
+        certusLinkStatus: "active",
+        lastStatusSyncedAt: new Date(),
+      },
+    });
+    await createPersistentSession({ userId: user.id, authMethod: "certus" });
+    await createPersistentSession({ userId: user.id, authMethod: "local" });
+
+    const found = await db.user.findUnique({ where: { certusSub: rawSub } });
+    expect(found?.id).toBe(user.id);
+
+    // sub fallback: only certus sessions go (design §7.1)
+    await db.session.deleteMany({ where: { userId: user.id, authMethod: "certus" } });
+    expect(await db.session.count({ where: { userId: user.id } })).toBe(1);
+  });
+
+  it("adopts a pre-#94 digest row instead of provisioning a second account", async () => {
+    const rawSub = uniqueSub("legacy-raw");
+    const digest = legacyDerivedSubject("https://certus.test", rawSub);
+    const legacyRow = await db.user.create({
+      data: {
+        certusSub: digest,
+        certusSubLegacy: digest,
+        certusLinkStatus: "active",
+        lastStatusSyncedAt: new Date(),
+        name: "existing",
+      },
+    });
+
+    const { userId } = await upsertCertusUser({ sub: rawSub, legacySub: digest });
+
+    // same row, upgraded in place -- no orphaned duplicate
+    expect(userId).toBe(legacyRow.id);
+    const after = await db.user.findUniqueOrThrow({ where: { id: legacyRow.id } });
+    expect(after.certusSub).toBe(rawSub);
+    expect(after.certusSubLegacy).toBeNull();
+    expect(after.name).toBe("existing");
+    expect(await db.user.count({ where: { certusSub: digest } })).toBe(0);
   });
 });

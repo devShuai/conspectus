@@ -112,7 +112,9 @@ describe("OIDC login flow", () => {
       { config, provider, sessions: memorySessionWriter, now: 10_001 },
     );
 
-    expect(completed.userId).toMatch(/^usr_[A-Za-z0-9_-]{43}$/);
+    // #94: the identity carried forward is certus's raw `sub`, not a digest --
+    // Back-Channel Logout and the status endpoint both need the real value.
+    expect(completed.userId).toBe("certus-user-id");
     expect(findAppSession(completed.sessionToken, 10_002)?.userId).toBe(
       completed.userId,
     );
