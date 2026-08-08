@@ -74,6 +74,15 @@ export function decryptCredential(
   return Buffer.concat([decipher.update(ciphertext), decipher.final()]);
 }
 
+export function unpackCredential(blob: Uint8Array | Buffer): {
+  keyId: string;
+  iv: Buffer;
+  tag: Buffer;
+  ciphertext: Buffer;
+} {
+  return unpack(blob);
+}
+
 function pack(keyId: string, iv: Buffer, tag: Buffer, ciphertext: Buffer): Buffer {
   const keyIdBytes = Buffer.from(keyId, "utf8");
   const header = Buffer.alloc(2 + 1 + keyIdBytes.length);

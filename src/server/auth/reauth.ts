@@ -103,3 +103,29 @@ export async function terminateReauthTransaction(token: string): Promise<void> {
     data: { consumedAt: new Date() },
   });
 }
+
+/** Read a transaction by its plain token (reauth callback: auth_time / sub comparison). */
+export async function findReauthTransaction(token: string): Promise<{
+  id: string;
+  userId: string;
+  sessionId: string;
+  action: string;
+  createdAt: Date;
+  expiresAt: Date;
+  verifiedAt: Date | null;
+  consumedAt: Date | null;
+} | null> {
+  return db.reauthTransaction.findFirst({
+    where: { tokenHash: hashToken(token) },
+    select: {
+      id: true,
+      userId: true,
+      sessionId: true,
+      action: true,
+      createdAt: true,
+      expiresAt: true,
+      verifiedAt: true,
+      consumedAt: true,
+    },
+  });
+}

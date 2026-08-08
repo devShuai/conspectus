@@ -6,6 +6,7 @@ const NAV = [
   { href: "/usage", label: "用量" },
   { href: "/notifications", label: "通知" },
   { href: "/devices", label: "设备" },
+  { href: "/settings", label: "设置" },
   { href: "/me", label: "我的" },
 ];
 

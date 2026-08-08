@@ -2,8 +2,10 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import {
+  expiredReauthCookieOptions,
   expiredTransactionCookieOptions,
   OIDC_TRANSACTION_COOKIE_NAME,
+  REAUTH_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
 } from "@/server/auth/cookies";
@@ -14,6 +16,10 @@ import {
   completeOIDCLogin,
   OIDCFlowError,
 } from "@/server/auth/flow";
+import {
+  completeReauthFlow,
+  ReauthFlowError,
+} from "@/server/auth/reauth-flow";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -21,6 +27,42 @@ export const dynamic = "force-dynamic";
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const config = loadAuthConfig();
   const transactionHandle = request.cookies.get(OIDC_TRANSACTION_COOKIE_NAME)?.value;
+  const reauthContext = request.cookies.get(REAUTH_COOKIE_NAME)?.value;
+
+  // reauth 分支：不建会话，只校验 auth_time/sub 并标记事务已验证（design §7.1）
+  if (reauthContext) {
+    try {
+      const done = await completeReauthFlow({
+        currentUrl: canonicalOIDCCallbackURL(config, request.nextUrl.searchParams),
+        oidcHandle: transactionHandle,
+        reauthContext,
+      });
+      const target = new URL(done.targetPath, config.appUrl);
+      target.searchParams.set("reauth", done.token);
+      const response = NextResponse.redirect(target, 303);
+      response.headers.set("Cache-Control", "no-store");
+      response.cookies.set(
+        OIDC_TRANSACTION_COOKIE_NAME,
+        "",
+        expiredTransactionCookieOptions(config),
+      );
+      response.cookies.set(REAUTH_COOKIE_NAME, "", expiredReauthCookieOptions(config));
+      return response;
+    } catch (error) {
+      const code = error instanceof ReauthFlowError ? error.code : "unexpected_error";
+      const target = new URL("/auth/error", config.appUrl);
+      target.searchParams.set("code", `reauth_${code}`);
+      const response = NextResponse.redirect(target, 303);
+      response.headers.set("Cache-Control", "no-store");
+      response.cookies.set(
+        OIDC_TRANSACTION_COOKIE_NAME,
+        "",
+        expiredTransactionCookieOptions(config),
+      );
+      response.cookies.set(REAUTH_COOKIE_NAME, "", expiredReauthCookieOptions(config));
+      return response;
+    }
+  }
 
   try {
     const login = await completeOIDCLogin(

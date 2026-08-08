@@ -1,0 +1,76 @@
+import { redirect } from "next/navigation";
+
+import {
+  ManualQuotaForm,
+  ManualUsageUpdateForm,
+} from "@/components/settings/usage-forms";
+import { currentAppSession } from "@/server/auth/current-session";
+import { db } from "@/server/db";
+import {
+  createManualQuotaAction,
+  updateManualUsageAction,
+} from "@/server/settings/actions";
+
+export const dynamic = "force-dynamic";
+
+export default async function UsageEntryPage() {
+  const session = await currentAppSession();
+  if (!session) redirect("/login");
+
+  const [subscriptions, quotas] = await Promise.all([
+    db.subscription.findMany({
+      where: { userId: session.userId },
+      orderBy: { name: "asc" },
+      select: { id: true, name: true },
+    }),
+    db.usageQuota.findMany({
+      where: { userId: session.userId },
+      orderBy: { createdAt: "asc" },
+      include: { subscription: { select: { name: true } } },
+    }),
+  ]);
+
+  return (
+    <main className="shell">
+      <p className="eyebrow">设置 / 用量录入</p>
+      <h1>手动录入用量</h1>
+      <p className="muted">
+        手动录入是三条采集通道的兜底（design §7.4）：不装 CLI、没有公开 API 时随时可用。
+      </p>
+
+      <h2>现有额度</h2>
+      {quotas.length === 0 && <p className="muted">暂无额度，先在下方创建。</p>}
+      <div className="usage-grid">
+        {quotas.map((quota) => (
+          <div key={quota.id} className="usage-card">
+            <div className="usage-card-head">
+              <span className="usage-metric">
+                {quota.subscription.name} · {quota.metric}
+              </span>
+              <span className="tag">{quota.kind}</span>
+            </div>
+            <p className="usage-meta">
+              {quota.kind === "balance"
+                ? `剩余 ${quota.remainingValue?.toString() ?? "—"} ${quota.unit}`
+                : `已用 ${quota.usedValue?.toString() ?? "—"}${quota.limitValue ? ` / ${quota.limitValue.toString()}` : ""} ${quota.unit}`}
+              {quota.valueCapturedAt &&
+                ` · ${quota.valueCapturedAt.toISOString().slice(0, 16).replace("T", " ")}`}
+            </p>
+            <ManualUsageUpdateForm
+              action={updateManualUsageAction}
+              quotaId={quota.id}
+              kind={quota.kind}
+            />
+          </div>
+        ))}
+      </div>
+
+      <h2>创建额度</h2>
+      {subscriptions.length === 0 ? (
+        <p className="muted">先创建一条订阅，才能为它建额度。</p>
+      ) : (
+        <ManualQuotaForm action={createManualQuotaAction} subscriptions={subscriptions} />
+      )}
+    </main>
+  );
+}

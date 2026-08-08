@@ -19,6 +19,8 @@ export interface OIDCProvider {
   buildAuthorizationURL(
     config: AuthConfig,
     security: RequestSecurity,
+    /** 追加到授权端点的参数，如 reauth 需要的 { prompt: "login", max_age: "0" } */
+    extraParams?: Record<string, string>,
   ): Promise<URL>;
   exchangeAuthorizationCode(
     config: AuthConfig,
@@ -40,7 +42,7 @@ export const certusOIDCProvider: OIDCProvider = {
     };
   },
 
-  async buildAuthorizationURL(config, security) {
+  async buildAuthorizationURL(config, security, extraParams) {
     const provider = await providerConfiguration(config);
     return oidc.buildAuthorizationUrl(provider, {
       redirect_uri: config.callbackUrl.href,
@@ -49,6 +51,7 @@ export const certusOIDCProvider: OIDCProvider = {
       nonce: security.nonce,
       code_challenge: security.codeChallenge,
       code_challenge_method: "S256",
+      ...extraParams,
     });
   },
 

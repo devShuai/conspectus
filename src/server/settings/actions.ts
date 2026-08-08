@@ -1,0 +1,389 @@
+"use server";
+
+import { revalidatePath } from "next/cache";
+import { z } from "zod";
+
+import { db } from "@/server/db";
+import { currentAppSession } from "@/server/auth/current-session";
+import { isSupportedCurrency } from "@/server/billing/fx";
+import { RebaseError, requestBaseCurrencyChange } from "@/server/billing/rebase";
+import { seedDefaultNotificationRules } from "@/server/notify/seed";
+import { TenantError } from "@/server/billing/subscriptions";
+import {
+  ConnectionError,
+  createProviderConnection,
+  revokeProviderConnection,
+} from "@/server/usage/connections";
+import { listBalanceAdapters } from "@/server/usage/providers/balance-adapters";
+import {
+  ManualUsageError,
+  createManualQuota,
+  updateManualUsage,
+} from "@/server/usage/manual";
+
+/**
+ * Server Actions for the settings section (issue #71, design.md §8).
+ * Fixed order: requireUser() -> Zod -> tenant-aware service -> write.
+ */
+
+export type ActionResult<T = undefined> =
+  | { ok: true; data?: T }
+  | { ok: false; error: { code: string; message: string; fieldErrors?: Record<string, string[]> } };
+
+async function requireUser(): Promise<string> {
+  const session = await currentAppSession();
+  if (!session) throw new TenantError("forbidden", "authentication required");
+  return session.userId;
+}
+
+function toFieldErrors(error: z.ZodError): Record<string, string[]> {
+  const out: Record<string, string[]> = {};
+  for (const issue of error.issues) {
+    const key = issue.path.join(".") || "_";
+    (out[key] ??= []).push(issue.message);
+  }
+  return out;
+}
+
+const KNOWN_ERRORS: Array<{
+  match: (cause: unknown) => string | null;
+  message: (reason: string) => string;
+}> = [
+  {
+    match: (c) => (c instanceof TenantError ? c.code : null),
+    message: (r) => r,
+  },
+  {
+    match: (c) => (c instanceof ConnectionError ? c.reason : null),
+    message: (r) =>
+      r === "unknown_provider"
+        ? "不支持的服务商"
+        : r === "connection_not_found"
+          ? "连接不存在或已删除"
+          : r,
+  },
+  {
+    match: (c) => (c instanceof ManualUsageError ? c.reason : null),
+    message: (r) =>
+      r === "subscription_not_found"
+        ? "订阅不存在"
+        : r === "manual_binding_not_found"
+          ? "该额度没有手动写入通道"
+          : r === "quota_not_found"
+            ? "额度不存在"
+            : r,
+  },
+];
+
+function toActionError(cause: unknown): ActionResult {
+  for (const known of KNOWN_ERRORS) {
+    const reason = known.match(cause);
+    if (reason !== null) {
+      return { ok: false, error: { code: reason, message: known.message(reason) } };
+    }
+  }
+  return { ok: false, error: { code: "server_error", message: "操作失败，请稍后重试" } };
+}
+
+/* ---------- 时区 ---------- */
+
+const TimezoneSchema = z.object({
+  timezone: z
+    .string()
+    .trim()
+    .min(1, "时区不能为空")
+    .max(64)
+    .refine((tz) => {
+      try {
+        new Intl.DateTimeFormat("en-US", { timeZone: tz });
+        return true;
+      } catch {
+        return false;
+      }
+    }, "无效的 IANA 时区"),
+});
+
+export async function updateTimezone(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = TimezoneSchema.safeParse({ timezone: formData.get("timezone") ?? "" });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    await db.user.update({
+      where: { id: userId },
+      data: { timezone: parsed.data.timezone },
+    });
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/* ---------- 本位币变更（异步 rebase） ---------- */
+
+const RebaseSchema = z.object({
+  currency: z
+    .string()
+    .trim()
+    .toUpperCase()
+    .regex(/^[A-Z]{3}$/, "币种需为 3 位 ISO-4217 代码")
+    .refine(isSupportedCurrency, "汇率源暂不覆盖该币种"),
+});
+
+export async function requestRebase(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = RebaseSchema.safeParse({ currency: formData.get("currency") ?? "" });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    await requestBaseCurrencyChange({ userId, toCurrency: parsed.data.currency });
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (cause) {
+    if (cause instanceof RebaseError) {
+      const messages: Record<string, string> = {
+        same_currency: "该币种已是当前本位币",
+        job_in_flight: "已有进行中的变更，请等待完成",
+      };
+      return {
+        ok: false,
+        error: { code: cause.reason, message: messages[cause.reason] ?? "操作失败，请稍后重试" },
+      };
+    }
+    return toActionError(cause);
+  }
+}
+
+export async function retryRebase(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const jobId = String(formData.get("jobId") ?? "");
+    const result = await db.currencyRebaseJob.updateMany({
+      where: { id: jobId, userId, status: "failed" },
+      data: { status: "pending", lastError: null },
+    });
+    if (result.count !== 1) {
+      return { ok: false, error: { code: "job_not_found", message: "任务不存在或不处于失败状态" } };
+    }
+    revalidatePath("/settings");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/* ---------- 服务商连接 ---------- */
+
+const ConnectProviderSchema = z.object({
+  providerId: z
+    .string()
+    .trim()
+    .min(1, "请选择服务商")
+    .refine((id) => listBalanceAdapters().some((p) => p.id === id), "不支持的服务商"),
+  displayName: z.string().trim().min(1, "显示名不能为空").max(60),
+  apiKey: z.string().trim().min(8, "API Key 至少 8 位").max(512),
+});
+
+export async function connectProviderAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = ConnectProviderSchema.safeParse({
+      providerId: formData.get("providerId") ?? "",
+      displayName: formData.get("displayName") ?? "",
+      apiKey: formData.get("apiKey") ?? "",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    await createProviderConnection({ userId, ...parsed.data });
+    revalidatePath("/settings/connections");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+export async function disconnectProviderAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const connectionId = String(formData.get("connectionId") ?? "");
+    await revokeProviderConnection({ userId, connectionId });
+    revalidatePath("/settings/connections");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/* ---------- 手动录入用量 ---------- */
+
+const optionalNumber = z
+  .string()
+  .trim()
+  .transform((v) => (v === "" ? undefined : Number(v)))
+  .refine((v) => v === undefined || Number.isFinite(v), "需为数字");
+
+const ManualQuotaSchema = z
+  .object({
+    subscriptionId: z.string().trim().min(1, "请选择订阅"),
+    kind: z.enum(["quota", "balance", "counter"]),
+    metric: z.string().trim().min(1, "指标不能为空").max(60),
+    unit: z.string().trim().min(1, "单位不能为空").max(20),
+    limitValue: optionalNumber,
+    usedValue: optionalNumber,
+    remainingValue: optionalNumber,
+    resetCycle: z.enum(["daily", "weekly", "monthly", "billing_cycle", "never"]),
+  })
+  .superRefine((value, ctx) => {
+    if (value.kind === "quota" && value.limitValue === undefined) {
+      ctx.addIssue({ code: "custom", path: ["limitValue"], message: "quota 需要上限" });
+    }
+    if (value.kind === "balance" && value.remainingValue === undefined) {
+      ctx.addIssue({ code: "custom", path: ["remainingValue"], message: "balance 需要剩余值" });
+    }
+    if (value.kind === "balance" && value.resetCycle !== "never") {
+      ctx.addIssue({ code: "custom", path: ["resetCycle"], message: "balance 的周期恒为 never" });
+    }
+  });
+
+export async function createManualQuotaAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = ManualQuotaSchema.safeParse({
+      subscriptionId: formData.get("subscriptionId") ?? "",
+      kind: formData.get("kind") ?? "quota",
+      metric: formData.get("metric") ?? "",
+      unit: formData.get("unit") ?? "",
+      limitValue: formData.get("limitValue") ?? "",
+      usedValue: formData.get("usedValue") ?? "",
+      remainingValue: formData.get("remainingValue") ?? "",
+      resetCycle: formData.get("resetCycle") ?? "monthly",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    const { subscriptionId, kind, metric, unit, limitValue, usedValue, remainingValue, resetCycle } =
+      parsed.data;
+    const now = new Date();
+    await createManualQuota({
+      userId,
+      subscriptionId,
+      kind,
+      metric,
+      unit,
+      limitValue,
+      usedValue,
+      remainingValue,
+      resetCycle,
+      ...(kind === "quota" ? { periodStart: now, periodEnd: nextPeriodEnd(now, resetCycle) } : {}),
+    });
+    revalidatePath("/settings/usage");
+    revalidatePath("/usage");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/** quota 需要 period；按 resetCycle 估算一个初始周期（数据源的读数到达后以数据源为准）。 */
+function nextPeriodEnd(from: Date, cycle: "daily" | "weekly" | "monthly" | "billing_cycle" | "never"): Date {
+  const end = new Date(from);
+  if (cycle === "daily") end.setDate(end.getDate() + 1);
+  else if (cycle === "weekly") end.setDate(end.getDate() + 7);
+  else end.setMonth(end.getMonth() + 1); // monthly / billing_cycle / never 暂按月
+  return end;
+}
+
+const ManualUsageSchema = z.object({
+  quotaId: z.string().trim().min(1),
+  usedValue: optionalNumber,
+  remainingValue: optionalNumber,
+});
+
+export async function updateManualUsageAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = ManualUsageSchema.safeParse({
+      quotaId: formData.get("quotaId") ?? "",
+      usedValue: formData.get("usedValue") ?? "",
+      remainingValue: formData.get("remainingValue") ?? "",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    if (parsed.data.usedValue === undefined && parsed.data.remainingValue === undefined) {
+      return { ok: false, error: { code: "validation", message: "至少填写一个读数" } };
+    }
+    await updateManualUsage({ userId, ...parsed.data });
+    revalidatePath("/settings/usage");
+    revalidatePath("/usage");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/* ---------- 采集设备 ---------- */
+
+export async function revokeDeviceAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const deviceId = String(formData.get("deviceId") ?? "");
+    const result = await db.collectorDevice.updateMany({
+      where: { id: deviceId, userId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    if (result.count !== 1) {
+      return { ok: false, error: { code: "device_not_found", message: "设备不存在或已撤销" } };
+    }
+    revalidatePath("/settings/devices");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/* ---------- 通知默认规则 ---------- */
+
+export async function seedNotificationRulesAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    void formData;
+    const created = await seedDefaultNotificationRules(userId);
+    void created;
+    revalidatePath("/settings/notifications");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
