@@ -44,8 +44,8 @@ async function setupQuota(userId: string, kind: "quota" | "counter" | "balance")
       usedValue: kind === "quota" || kind === "counter" ? 0 : null,
       remainingValue: kind === "balance" ? 50 : null,
       resetCycle: kind === "balance" ? "never" : "daily",
-      periodStart: kind === "quota" ? new Date("2026-01-01T00:00:00Z") : null,
-      periodEnd: kind === "quota" ? new Date("2026-01-02T00:00:00Z") : null,
+      periodStart: kind === "quota" ? new Date(Date.now() - 86_400_000) : null,
+      periodEnd: kind === "quota" ? new Date(Date.now() + 86_400_000) : null,
     },
   });
   return { sub, quota };

@@ -118,20 +118,25 @@ export async function closeQuotaCycle(
 
     const finalValue = quota.usedValue ?? 0;
     const limit = quota.limitValue;
-    await tx.usageCycleSummary.create({
-      data: {
-        userId,
-        quotaId,
-        periodStart: quota.periodStart ?? now,
-        periodEnd: quota.periodEnd,
-        finalValue,
-        limitValueAtClose: limit,
-        utilizationAtClose:
-          Number(limit) > 0 ? Number(finalValue) / Number(limit) : null,
-        unitAtClose: quota.unit,
-        authoritativeBindingIdAtClose: quota.authoritativeBindingId,
-      },
-    }).catch(() => undefined); // unique (quotaId, periodStart)
+    // skipDuplicates → ON CONFLICT DO NOTHING：唯一键 (quotaId, periodStart) 冲突由
+    // Postgres 吸收；JS catch 无法解除事务中止，会毒死后续所有语句（同 #65 的教训）
+    await tx.usageCycleSummary.createMany({
+      data: [
+        {
+          userId,
+          quotaId,
+          periodStart: quota.periodStart ?? now,
+          periodEnd: quota.periodEnd,
+          finalValue,
+          limitValueAtClose: limit,
+          utilizationAtClose:
+            Number(limit) > 0 ? Number(finalValue) / Number(limit) : null,
+          unitAtClose: quota.unit,
+          authoritativeBindingIdAtClose: quota.authoritativeBindingId,
+        },
+      ],
+      skipDuplicates: true,
+    });
 
     await tx.usageQuota.update({
       where: { id: quotaId },

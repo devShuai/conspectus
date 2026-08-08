@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 
+import { resetDueQuotaCycles } from "@/server/usage/cycle-reset";
 import { syncDueConnections } from "@/server/usage/sync";
 
 export const runtime = "nodejs";
@@ -33,5 +34,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     shard: of > 1 ? { index: shard, of } : undefined,
     shardIndex,
   });
-  return NextResponse.json({ ok: true, shard, of, ...result });
+  // 纯手工 quota 的周期重置（§7.4 / #117）：到期归零、UsageCycleSummary 固化
+  const { closed } = await resetDueQuotaCycles(new Date());
+  return NextResponse.json({ ok: true, shard, of, cyclesClosed: closed, ...result });
 }

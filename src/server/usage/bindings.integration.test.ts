@@ -40,8 +40,9 @@ describe.skipIf(DISABLED)("local collector bindings (#87)", () => {
       limitValue: 500,
       usedValue: 0,
       resetCycle: "monthly",
-      periodStart: new Date("2026-01-01T00:00:00Z"),
-      periodEnd: new Date("2026-02-01T00:00:00Z"),
+      // 周期落在未来：cycle-reset runner 不会锁定本条（并发下曾有死锁）
+      periodStart: new Date(Date.now() - 86_400_000),
+      periodEnd: new Date(Date.now() + 86_400_000),
     });
     return { user, sub, quotaId };
   }
