@@ -485,3 +485,18 @@ code {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
+
+.danger-zone {
+  margin-top: 8px;
+  padding: 16px;
+  border: 1px solid color-mix(in srgb, #c0392b 45%, transparent);
+  border-radius: 12px;
+  display: grid;
+  gap: 12px;
+  max-width: 560px;
+}
+
+.danger-zone form {
+  display: grid;
+  gap: 12px;
+}

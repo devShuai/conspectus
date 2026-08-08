@@ -6,9 +6,14 @@ import { db } from "@/server/db";
 
 export const dynamic = "force-dynamic";
 
-export default async function MePage() {
+export default async function MePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ reauth?: string; delete_error?: string }>;
+}) {
   const session = await currentAppSession();
   if (!session) redirect("/login");
+  const { reauth, delete_error } = await searchParams;
 
   const user = await db.user.findUnique({
     where: { id: session.userId },
@@ -71,6 +76,53 @@ export default async function MePage() {
             退出登录
           </button>
         </form>
+      </div>
+
+      <h2>危险区</h2>
+      <div className="danger-zone">
+        <p className="muted">
+          注销账号将<strong>永久删除</strong> conspectus
+          侧的全部数据：订阅、账单记录、用量快照、通知规则、设备与登录会话。
+          此操作不可撤销。你的 <strong>certus 账号不受影响</strong>。
+        </p>
+        {delete_error && (
+          <p className="field-error">
+            {delete_error === "email_mismatch" && "邮箱不匹配，请重新输入你的注册邮箱。"}
+            {delete_error === "reauth_required" && "需要先完成重新认证。"}
+            {delete_error === "reauth_invalid" &&
+              "重新认证已失效或被使用，请重新发起。"}
+            {delete_error === "user_not_found" && "账号状态异常，请重新登录后再试。"}
+          </p>
+        )}
+        {reauth ? (
+          <form action="/api/auth/delete-account" method="post">
+            <input type="hidden" name="reauth" value={reauth} />
+            <div className="field">
+              <label htmlFor="delete-email">输入你的邮箱以确认删除</label>
+              <input
+                id="delete-email"
+                name="email"
+                type="email"
+                required
+                autoComplete="email"
+                placeholder={user.email ?? "你的注册邮箱"}
+              />
+            </div>
+            <button className="button danger" type="submit">
+              永久删除我的账号
+            </button>
+          </form>
+        ) : (
+          <p>
+            注销需要先重新认证（certus 重新登录一次）：
+            <a
+              className="button danger"
+              href={`/api/auth/reauth/start?action=delete_account&target=${encodeURIComponent("/me")}`}
+            >
+              重新认证并继续注销
+            </a>
+          </p>
+        )}
       </div>
     </main>
   );

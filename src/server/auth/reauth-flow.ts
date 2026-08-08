@@ -38,7 +38,7 @@ export class ReauthFlowError extends Error {
 }
 
 /** 允许发起 reauth 的敏感动作（设计 §7.1）。 */
-export const REAUTH_ACTIONS = ["export"] as const;
+export const REAUTH_ACTIONS = ["export", "delete_account"] as const;
 
 /**
  * Only same-site relative paths may become a redirect target. Protocol-relative
