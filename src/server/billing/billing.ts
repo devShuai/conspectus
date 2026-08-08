@@ -57,7 +57,16 @@ export interface RecordResult {
  */
 export async function recordPaidCharge(
   input: RecordPaymentInput,
-  client: Prisma.TransactionClient = db,
+  client?: Prisma.TransactionClient,
+): Promise<RecordResult> {
+  if (client) return recordPaidChargeImpl(input, client);
+  // 默认必须包事务：记录与投影是一个原子事实（§6.2），不是两条独立语句
+  return db.$transaction((tx) => recordPaidChargeImpl(input, tx));
+}
+
+async function recordPaidChargeImpl(
+  input: RecordPaymentInput,
+  client: Prisma.TransactionClient,
 ): Promise<RecordResult> {
   const sub = await client.subscription.findFirst({
     where: { id: input.subscriptionId, userId: input.userId },
@@ -95,7 +104,17 @@ export async function recordPaidCharge(
 
 export async function recordRefund(
   input: RecordRefundInput,
-  client: Prisma.TransactionClient = db,
+  client?: Prisma.TransactionClient,
+): Promise<RecordResult> {
+  if (client) return recordRefundImpl(input, client);
+  // 默认必须包事务（§6.2 退款关系约束：「同一事务锁定原记录后校验」）——
+  // 否则 FOR UPDATE 语句一提交锁就释放，并发退款可双双通过上限校验
+  return db.$transaction((tx) => recordRefundImpl(input, tx));
+}
+
+async function recordRefundImpl(
+  input: RecordRefundInput,
+  client: Prisma.TransactionClient,
 ): Promise<RecordResult> {
   const original = await client.billingRecord.findFirst({
     where: {

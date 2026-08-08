@@ -185,20 +185,21 @@ describe.skipIf(DISABLED)("nextBillingAt semantics (#104)", () => {
       price: 138,
       currency: "CNY",
       billingCycle: "monthly",
-      startedAt: new Date("2026-01-31T00:00:00Z"),
+      // next=2026-08-31 落在真实当前之后：并发 renewals 不会为其建账，清理无 RESTRICT
+      startedAt: new Date("2026-07-31T00:00:00Z"),
       status: "active",
     });
     // 锚定日从 startedAt 固化（旧 bug：每段从 cursor 反推，1/31 会退化成 28 号）
     expect(sub.anchorDay).toBe(31);
-    expect(sub.nextBillingAt).toEqual(new Date("2026-02-28T00:00:00Z"));
+    expect(sub.nextBillingAt).toEqual(new Date("2026-08-31T00:00:00Z"));
 
     // 已推进的 next 被重置回落是旧 bug 的直接后果：改 notes 不得动日期
     await db.subscription.update({
       where: { id: sub.id },
-      data: { nextBillingAt: new Date("2026-08-31T00:00:00Z") },
+      data: { nextBillingAt: new Date("2026-12-31T00:00:00Z") },
     });
     const updated = await updateSubscription(user.id, sub.id, { notes: "只改备注" });
-    expect(updated.nextBillingAt).toEqual(new Date("2026-08-31T00:00:00Z"));
+    expect(updated.nextBillingAt).toEqual(new Date("2026-12-31T00:00:00Z"));
 
     await db.subscription.delete({ where: { id: sub.id } });
     await db.user.delete({ where: { id: user.id } });
@@ -206,21 +207,19 @@ describe.skipIf(DISABLED)("nextBillingAt semantics (#104)", () => {
 
   it("recomputes to the next future period only when cycle fields change", async () => {
     const user = await makeUser(uniqueSub("nb-2"));
+    const startedAt = new Date(); // next 在未来：并发 renewals 不会为其建账
     const sub = await createSubscription(user.id, {
       name: "Claude",
       price: 20,
       currency: "USD",
       billingCycle: "monthly",
-      startedAt: new Date("2026-01-15T00:00:00Z"),
+      startedAt,
       status: "active",
     });
     const updated = await updateSubscription(user.id, sub.id, { billingCycle: "yearly" });
-    const expected = nextBillingOnOrAfter(
-      new Date(),
-      new Date("2026-01-15T00:00:00Z"),
-      "yearly",
-      { anchorDay: 15 },
-    );
+    const expected = nextBillingOnOrAfter(new Date(), startedAt, "yearly", {
+      anchorDay: startedAt.getUTCDate(),
+    });
     expect(updated.nextBillingAt).toEqual(expected);
     // 重算绝不落过去 —— 落过去会被 renewals 追补成伪造 pending
     expect(updated.nextBillingAt!.getTime()).toBeGreaterThanOrEqual(
