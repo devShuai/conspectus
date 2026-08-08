@@ -1,5 +1,5 @@
 import { db } from "@/server/db";
-import { decryptCredential, loadCredentialKeyring, type CredentialKeyring } from "@/server/auth/crypto";
+import { decryptCredentialParts, loadCredentialKeyring, type CredentialKeyring } from "@/server/auth/crypto";
 
 export interface SyncContext {
   userId: string;
@@ -62,7 +62,7 @@ export function listProviders(): UsageProvider[] {
   return [...registry.values()];
 }
 
-/** Decrypt a connection's credential envelope in memory; used once, dropped. */
+/** Decrypt a connection's credential from its columns in memory; used once, dropped. */
 export function decryptConnectionCredential(
   connection: {
     credentialKeyId: string;
@@ -72,17 +72,16 @@ export function decryptConnectionCredential(
   },
   keyring: CredentialKeyring = loadCredentialKeyring(),
 ): DecryptedCredential {
-  const blob = Buffer.concat([
-    Buffer.from(connection.credentialCipher),
-    Buffer.from(connection.credentialIv),
-    Buffer.from(connection.credentialTag),
-  ]);
-  // envelope layout: [keyId header][iv][tag][ciphertext] per crypto.ts pack()
-  void connection.credentialKeyId;
-  void blob;
-  const keyring2 = keyring;
-  // credentialCipher already contains the full packed envelope (keyId+iv+tag+cipher)
-  const plain = decryptCredential(connection.credentialCipher, keyring2);
+  // §7.4：密文、IV、authTag、keyId 分列存储（#109）
+  const plain = decryptCredentialParts(
+    {
+      keyId: connection.credentialKeyId,
+      ciphertext: connection.credentialCipher,
+      iv: connection.credentialIv,
+      tag: connection.credentialTag,
+    },
+    keyring,
+  );
   return { secret: plain.toString("utf8"), scopes: [] };
 }
 

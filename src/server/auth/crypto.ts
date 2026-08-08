@@ -83,6 +83,41 @@ export function unpackCredential(blob: Uint8Array | Buffer): {
   return unpack(blob);
 }
 
+/**
+ * 分列加解密（design §7.4「密文、IV、authTag、keyId 分列存储」）：
+ * ProviderConnection 的 credentialCipher/Iv/Tag/KeyId 四列各归其位（#109）。
+ * envelope 形态（encryptCredential/decryptCredential）仍用于 Session 令牌与 webhook 密钥。
+ */
+export function encryptCredentialParts(
+  plaintext: Buffer,
+  keyring: CredentialKeyring,
+): { keyId: string; ciphertext: Buffer; iv: Buffer; tag: Buffer } {
+  const key = keyring.keys.get(keyring.activeKeyId);
+  if (!key) {
+    throw new Error("active credential key missing");
+  }
+  const iv = randomBytes(IV_BYTES);
+  const cipher = createCipheriv(ALGORITHM, key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return { keyId: keyring.activeKeyId, ciphertext, iv, tag: cipher.getAuthTag() };
+}
+
+export function decryptCredentialParts(
+  parts: { keyId: string; ciphertext: Uint8Array; iv: Uint8Array; tag: Uint8Array },
+  keyring: CredentialKeyring,
+): Buffer {
+  const key = keyring.keys.get(parts.keyId);
+  if (!key) {
+    throw new Error(`credential key ${parts.keyId} not in keyring`);
+  }
+  const decipher = createDecipheriv(ALGORITHM, key, Buffer.from(parts.iv));
+  decipher.setAuthTag(Buffer.from(parts.tag));
+  return Buffer.concat([
+    decipher.update(Buffer.from(parts.ciphertext)),
+    decipher.final(),
+  ]);
+}
+
 function pack(keyId: string, iv: Buffer, tag: Buffer, ciphertext: Buffer): Buffer {
   const keyIdBytes = Buffer.from(keyId, "utf8");
   const header = Buffer.alloc(2 + 1 + keyIdBytes.length);

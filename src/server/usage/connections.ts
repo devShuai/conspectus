@@ -1,9 +1,5 @@
 import { db } from "@/server/db";
-import {
-  encryptCredential,
-  loadCredentialKeyring,
-  unpackCredential,
-} from "@/server/auth/crypto";
+import { encryptCredentialParts, loadCredentialKeyring } from "@/server/auth/crypto";
 
 import { listBalanceAdapters } from "./providers/balance-adapters";
 
@@ -36,18 +32,18 @@ export async function createProviderConnection(input: {
   }
 
   const keyring = loadCredentialKeyring();
-  const envelope = encryptCredential(Buffer.from(input.apiKey, "utf8"), keyring);
-  const { iv, tag } = unpackCredential(envelope);
+  // §7.4 分列存储：cipher 列只放密文，IV/authTag/keyId 各归其列（#109）
+  const parts = encryptCredentialParts(Buffer.from(input.apiKey, "utf8"), keyring);
 
   const connection = await db.providerConnection.create({
     data: {
       userId: input.userId,
       providerId: provider.id,
       displayName: input.displayName,
-      credentialKeyId: keyring.activeKeyId,
-      credentialCipher: new Uint8Array(envelope),
-      credentialIv: new Uint8Array(iv),
-      credentialTag: new Uint8Array(tag),
+      credentialKeyId: parts.keyId,
+      credentialCipher: new Uint8Array(parts.ciphertext),
+      credentialIv: new Uint8Array(parts.iv),
+      credentialTag: new Uint8Array(parts.tag),
       status: "active",
       // 让下一次 usage-sync 立即拉取，而不是等 6 小时
       nextSyncAt: new Date(),
