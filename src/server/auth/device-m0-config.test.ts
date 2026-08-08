@@ -8,6 +8,7 @@ const base = {
   CERTUS_ISSUER: "https://certus.example.com",
   CERTUS_CLIENT_ID: "conspectus",
   CERTUS_CLIENT_SECRET: "resource-secret",
+  AUTH_SECRET: "test-auth-secret-with-at-least-32-bytes",
   CERTUS_CLI_CLIENT_ID: "conspectus-cli",
 };
 

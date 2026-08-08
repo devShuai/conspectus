@@ -69,10 +69,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     }
   }
 
-  // Bind branch. Dispatch on the purpose recorded server-side in the
-  // transaction, not on anything the browser supplies (#96): a login
-  // authorization must never be replayable as a bind, and vice versa.
-  if (peekOIDCTransaction(transactionHandle)?.purpose === "bind") {
+  // Bind branch. Dispatch on the signed transaction purpose, never on an
+  // unsigned browser marker (#96): login cannot be replayed as bind or vice versa.
+  if (peekOIDCTransaction(transactionHandle, config.authSecret)?.purpose === "bind") {
     const session = await dbSessionWriter.find(
       request.cookies.get(SESSION_COOKIE_NAME)?.value,
     );

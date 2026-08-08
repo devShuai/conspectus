@@ -4,7 +4,7 @@ import { bindCertusToUser, BindError } from "./bind";
 import { certusSubjectFromClaims, legacyDerivedSubject } from "./claims";
 import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
-import { consumeOIDCTransaction, createOIDCTransaction } from "./transaction";
+import { createOIDCTransaction, readOIDCTransaction } from "./transaction";
 
 export type BindFlowErrorCode =
   | "invalid_transaction"
@@ -39,9 +39,8 @@ export interface BindFlowStart {
  * real owner later signed in, JIT attached them to the attacker's account
  * (#96).
  *
- * The intent (purpose + which user) lives in the server-side OIDC transaction
- * and is reached only through the opaque handle, so nothing about it can be
- * edited in the browser.
+ * The intent (purpose + which user) is covered by the AUTH_SECRET signature in
+ * the OIDC transaction Cookie, so the browser cannot change either value.
  */
 export async function startBindFlow(input: {
   userId: string;
@@ -67,6 +66,7 @@ export async function startBindFlow(input: {
       purpose: "bind",
       bindUserId: input.userId,
     },
+    config.authSecret,
     input.now,
   );
 
@@ -97,7 +97,11 @@ export async function completeBindFlow(input: {
   const config = input.config ?? loadAuthConfig();
   const provider = input.provider ?? certusOIDCProvider;
 
-  const transaction = consumeOIDCTransaction(input.oidcHandle, input.now);
+  const transaction = readOIDCTransaction(
+    input.oidcHandle,
+    config.authSecret,
+    input.now,
+  );
   if (!transaction) throw new BindFlowError("invalid_transaction");
   if (transaction.purpose !== "bind" || !transaction.bindUserId) {
     // A login transaction must never be replayed into a bind.

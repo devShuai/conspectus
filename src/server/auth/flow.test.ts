@@ -19,8 +19,7 @@ import {
 } from "./session";
 import {
   OIDC_TRANSACTION_TTL_MS,
-  oidcTransactionStorageKeysForTests,
-  resetOIDCTransactionsForTests,
+  peekOIDCTransaction,
 } from "./transaction";
 
 const config = loadAuthConfig({
@@ -29,6 +28,7 @@ const config = loadAuthConfig({
   CERTUS_ISSUER: "http://127.0.0.1:8080",
   CERTUS_CLIENT_ID: "conspectus",
   CERTUS_CLIENT_SECRET: "test-secret",
+  AUTH_SECRET: "test-auth-secret-with-at-least-32-bytes",
 });
 
 const security: RequestSecurity = {
@@ -90,10 +90,9 @@ function callbackURL(state = security.state): URL {
 describe("OIDC login flow", () => {
   beforeEach(() => {
     resetAppSessionsForTests();
-    resetOIDCTransactionsForTests();
   });
 
-  it("creates a one-time transaction and an opaque local session", async () => {
+  it("creates a signed transaction cookie and an opaque local session", async () => {
     const provider = fakeProvider();
     const started = await begin(provider);
 
@@ -102,9 +101,14 @@ describe("OIDC login flow", () => {
     );
     expect(started.authorizationUrl.searchParams.get("state")).toBe(security.state);
     expect(started.authorizationUrl.searchParams.get("nonce")).toBe(security.nonce);
-    expect(oidcTransactionStorageKeysForTests()).not.toContain(
-      started.transactionHandle,
-    );
+    expect(
+      peekOIDCTransaction(started.transactionHandle, config.authSecret, 10_001),
+    ).toMatchObject({
+      state: security.state,
+      nonce: security.nonce,
+      codeVerifier: security.codeVerifier,
+      purpose: "login",
+    });
 
     const completed = await completeOIDCLogin(
       callbackURL(),
@@ -121,6 +125,9 @@ describe("OIDC login flow", () => {
     expect(appSessionStorageKeysForTests()).not.toContain(completed.sessionToken);
     expect(provider.exchangeAuthorizationCode).toHaveBeenCalledOnce();
 
+    provider.exchangeAuthorizationCode.mockRejectedValueOnce(
+      new Error("authorization code was already consumed"),
+    );
     await expect(
       completeOIDCLogin(callbackURL(), started.transactionHandle, {
         config,
@@ -128,7 +135,7 @@ describe("OIDC login flow", () => {
         sessions: memorySessionWriter,
         now: 10_003,
       }),
-    ).rejects.toMatchObject({ code: "invalid_transaction" });
+    ).rejects.toMatchObject({ code: "authorization_response_rejected" });
 
     deleteAppSession(completed.sessionToken);
     expect(findAppSession(completed.sessionToken, 10_004)).toBeNull();
@@ -156,7 +163,6 @@ describe("OIDC login flow", () => {
       callbackURL("attacker-state"),
       new URL(`${callbackURL().href}&state=${security.state}`),
     ]) {
-      resetOIDCTransactionsForTests();
       const provider = fakeProvider();
       const started = await begin(provider);
       await expect(

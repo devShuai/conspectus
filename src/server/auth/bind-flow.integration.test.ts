@@ -14,6 +14,7 @@ const config = {
   issuerIdentifier: "https://certus.test",
   clientId: "conspectus",
   clientSecret: "s",
+  authSecret: "test-auth-secret-with-at-least-32-bytes",
   appUrl: new URL("http://localhost:3000"),
 } as unknown as AuthConfig;
 
@@ -85,11 +86,14 @@ describe.skipIf(DISABLED)("bind via certus authorization (#96)", () => {
     const user = await localUser();
     const provider = providerReturning(uniqueSub("x"), "n2");
     // a plain login transaction: no purpose, no bindUserId
-    const { handle } = createOIDCTransaction({
-      state: "st",
-      nonce: "n2",
-      codeVerifier: "cv",
-    });
+    const { handle } = createOIDCTransaction(
+      {
+        state: "st",
+        nonce: "n2",
+        codeVerifier: "cv",
+      },
+      config.authSecret,
+    );
 
     await expect(
       completeBindFlow({
@@ -164,7 +168,7 @@ describe.skipIf(DISABLED)("bind via certus authorization (#96)", () => {
     expect(after.certusSub).toBeNull();
   });
 
-  it("consumes the transaction so the same authorization cannot bind twice", async () => {
+  it("cannot reuse the same authorization code to bind twice", async () => {
     const user = await localUser();
     const provider = providerReturning(uniqueSub("once"), "n6");
     const started = await startBindFlow({ userId: user.id, config, provider });
@@ -176,6 +180,9 @@ describe.skipIf(DISABLED)("bind via certus authorization (#96)", () => {
       config,
       provider,
     });
+    vi.mocked(provider.exchangeAuthorizationCode).mockRejectedValueOnce(
+      new Error("authorization code was already consumed"),
+    );
     await expect(
       completeBindFlow({
         currentUrl: callbackUrl(),
@@ -184,6 +191,6 @@ describe.skipIf(DISABLED)("bind via certus authorization (#96)", () => {
         config,
         provider,
       }),
-    ).rejects.toMatchObject({ code: "invalid_transaction" });
+    ).rejects.toMatchObject({ code: "authorization_response_rejected" });
   });
 });

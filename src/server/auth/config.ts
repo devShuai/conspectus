@@ -5,6 +5,7 @@ export interface AuthConfig {
   issuerIdentifier: string;
   clientId: string;
   clientSecret: string;
+  authSecret: string;
   secureCookies: boolean;
 }
 
@@ -16,6 +17,11 @@ export function loadAuthConfig(environment: AuthEnvironment = process.env): Auth
   const issuer = requiredURL("CERTUS_ISSUER", environment.CERTUS_ISSUER, production);
   const clientId = requiredValue("CERTUS_CLIENT_ID", environment.CERTUS_CLIENT_ID);
   const clientSecret = requiredValue("CERTUS_CLIENT_SECRET", environment.CERTUS_CLIENT_SECRET);
+  const authSecret = requiredValue("AUTH_SECRET", environment.AUTH_SECRET);
+
+  if (Buffer.byteLength(authSecret, "utf8") < 32) {
+    throw new Error("AUTH_SECRET must be at least 32 bytes");
+  }
 
   if (issuer.search || issuer.hash) {
     throw new Error("CERTUS_ISSUER must not contain a query or fragment");
@@ -28,6 +34,7 @@ export function loadAuthConfig(environment: AuthEnvironment = process.env): Auth
     issuerIdentifier: issuer.href.replace(/\/$/, ""),
     clientId,
     clientSecret,
+    authSecret,
     secureCookies: appUrl.protocol === "https:",
   };
 }

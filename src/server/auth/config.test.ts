@@ -8,6 +8,7 @@ const baseEnvironment = {
   CERTUS_ISSUER: "http://127.0.0.1:8080",
   CERTUS_CLIENT_ID: "conspectus",
   CERTUS_CLIENT_SECRET: "test-secret",
+  AUTH_SECRET: "test-auth-secret-with-at-least-32-bytes",
 };
 
 describe("loadAuthConfig", () => {
@@ -23,6 +24,8 @@ describe("loadAuthConfig", () => {
 
   it.each([
     ["missing secret", { ...baseEnvironment, CERTUS_CLIENT_SECRET: "" }],
+    ["missing auth secret", { ...baseEnvironment, AUTH_SECRET: "" }],
+    ["short auth secret", { ...baseEnvironment, AUTH_SECRET: "too-short" }],
     ["application path", { ...baseEnvironment, APP_URL: "http://127.0.0.1:3000/app" }],
     ["embedded credentials", { ...baseEnvironment, CERTUS_ISSUER: "https://user:pass@auth.example.com" }],
     ["remote development HTTP", { ...baseEnvironment, CERTUS_ISSUER: "http://auth.example.com" }],

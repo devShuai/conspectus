@@ -8,6 +8,7 @@ const base = {
   CERTUS_ISSUER: "http://127.0.0.1:8080",
   CERTUS_CLIENT_ID: "conspectus",
   CERTUS_CLIENT_SECRET: "test-secret",
+  AUTH_SECRET: "test-auth-secret-with-at-least-32-bytes",
   AUTH_MODE: "certus",
   CRON_SECRET: "cron-secret-value",
   DEPLOY_PROBE_SECRET: "probe-secret-value",

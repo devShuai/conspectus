@@ -8,8 +8,8 @@ import {
 import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
 import {
-  consumeOIDCTransaction,
   createOIDCTransaction,
+  readOIDCTransaction,
 } from "./transaction";
 
 export type OIDCFlowErrorCode =
@@ -81,6 +81,7 @@ export async function startOIDCLogin(
       nonce: security.nonce,
       codeVerifier: security.codeVerifier,
     },
+    config.authSecret,
     options.now,
   );
   return {
@@ -112,7 +113,11 @@ export async function completeOIDCLogin(
   const config = options.config ?? loadAuthConfig();
   const provider = options.provider ?? certusOIDCProvider;
   const sessions = options.sessions ?? (await import("./db-flow")).dbSessionWriter;
-  const transaction = consumeOIDCTransaction(transactionHandle, options.now);
+  const transaction = readOIDCTransaction(
+    transactionHandle,
+    config.authSecret,
+    options.now,
+  );
   if (!transaction) {
     throw new OIDCFlowError("invalid_transaction");
   }

@@ -22,6 +22,7 @@ const config: AuthConfig = {
   issuerIdentifier: "http://127.0.0.1:8080",
   clientId: "conspectus",
   clientSecret: "test-secret",
+  authSecret: "test-auth-secret-with-at-least-32-bytes",
   secureCookies: false,
 };
 

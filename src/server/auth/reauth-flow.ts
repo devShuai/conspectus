@@ -12,8 +12,8 @@ import {
   verifyReauthTransaction,
 } from "./reauth";
 import {
-  consumeOIDCTransaction,
   createOIDCTransaction,
+  readOIDCTransaction,
 } from "./transaction";
 
 export type ReauthFlowErrorCode =
@@ -101,6 +101,7 @@ export async function startReauthFlow(input: {
       nonce: security.nonce,
       codeVerifier: security.codeVerifier,
     },
+    config.authSecret,
     input.now,
   );
 
@@ -150,7 +151,11 @@ export async function completeReauthFlow(input: {
     throw new ReauthFlowError("invalid_transaction");
   }
 
-  const transaction = consumeOIDCTransaction(input.oidcHandle, now);
+  const transaction = readOIDCTransaction(
+    input.oidcHandle,
+    config.authSecret,
+    now,
+  );
   if (!transaction) {
     throw new ReauthFlowError("invalid_transaction");
   }
