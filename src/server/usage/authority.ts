@@ -47,15 +47,12 @@ export async function switchAuthoritativeBinding(input: {
     });
 
     if (!latest) {
+      // 无快照可重建：只移交权威，数值保留 —— §6.2 的 kind CHECK 不允许清空
+      // quota/balance/counter 的数值列；历史读数是事实，valueCapturedAt 标明陈旧
       await tx.usageQuota.update({
         where: { id: quota.id },
         data: {
           authoritativeBindingId: binding.id,
-          usedValue: null,
-          remainingValue: null,
-          limitValue: null,
-          valueCapturedAt: null,
-          valueSnapshotId: null,
           lastSyncedAt: now,
         },
       });
@@ -68,7 +65,10 @@ export async function switchAuthoritativeBinding(input: {
         authoritativeBindingId: binding.id,
         usedValue: latest.kindAtCapture === "balance" ? null : latest.value,
         remainingValue: latest.kindAtCapture === "balance" ? latest.value : null,
-        limitValue: latest.limitValueAtCapture,
+        // limitValueAtCapture 为空时保留原上限（quota 的 CHECK 要求非空）
+        ...(latest.limitValueAtCapture !== null
+          ? { limitValue: latest.limitValueAtCapture }
+          : {}),
         valueCapturedAt: latest.capturedAt,
         valueSnapshotId: latest.id,
         lastSyncedAt: now,

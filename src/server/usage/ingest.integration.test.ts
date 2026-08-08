@@ -162,7 +162,7 @@ describe.skipIf(DISABLED)("usage ingest", () => {
       where: { id: quota.id },
       data: { authoritativeBindingId: a.id },
     });
-    // b has history
+    // b has history（用近期时间戳：并发运行的 purge 会清 180 天前的快照，旧日期会 flakes）
     await ingestReadings(user.id, [
       UsageReadingSchema.parse({
         bindingId: b.id,
@@ -170,7 +170,7 @@ describe.skipIf(DISABLED)("usage ingest", () => {
         metric: "requests",
         unit: "req",
         usedValue: "77",
-        capturedAt: "2026-01-01T09:00:00Z",
+        capturedAt: new Date(Date.now() - 3_600_000).toISOString(),
       }),
     ]);
 
