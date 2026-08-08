@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { backfillMissingProjections, countMissingProjections } from "./fx";
+import { backfillMissingProjections, collectFxPairs, countMissingProjections } from "./fx";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 
@@ -71,5 +71,38 @@ describe.skipIf(DISABLED)("fx backfill", () => {
     await db.billingRecord.deleteMany({ where: { userId: user.id } });
     await db.subscription.deleteMany({ where: { userId: user.id } });
     await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("collects pairs for every user's base currency, not one global quote (#93)", async () => {
+    const cnyUser = await setupUser("CNY");
+    const usdUser = await setupUser("USD");
+    const sub = await db.subscription.create({
+      data: {
+        userId: cnyUser.id,
+        name: "T",
+        price: 10,
+        currency: "EUR",
+        billingCycle: "monthly",
+        startedAt: new Date("2026-01-01T00:00:00Z"),
+        status: "active",
+      },
+    });
+
+    const pairs = await collectFxPairs();
+    const has = (base: string, quote: string) =>
+      pairs.some((p) => p.base === base && p.quote === quote);
+
+    // EUR 被使用 → 必须同时抓 EUR→CNY 与 EUR→USD（此前只有最早用户的 quote）
+    expect(has("EUR", "CNY")).toBe(true);
+    expect(has("EUR", "USD")).toBe(true);
+    // 用户本位币互为使用时也成对
+    expect(has("USD", "CNY")).toBe(true);
+    expect(has("CNY", "USD")).toBe(true);
+    // 不出现自己到自己的对
+    expect(pairs.some((p) => p.base === p.quote)).toBe(false);
+
+    await db.subscription.deleteMany({ where: { id: sub.id } });
+    await db.user.delete({ where: { id: cnyUser.id } });
+    await db.user.delete({ where: { id: usdUser.id } });
   });
 });

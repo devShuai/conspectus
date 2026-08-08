@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/server/db";
-import { backfillMissingProjections, countMissingProjections, fetchFxRate, saveFxRate } from "@/server/billing/fx";
+import { backfillMissingProjections, collectFxPairs, fetchFxRate, saveFxRate } from "@/server/billing/fx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,22 +18,8 @@ export async function GET(request: Request): Promise<NextResponse> {
   }
 
   const today = new Date();
-  const currencies = await db.$queryRaw<Array<{ currency: string }>>`
-    SELECT DISTINCT currency FROM "billing_records" WHERE status = 'paid'
-    UNION
-    SELECT DISTINCT base_currency FROM "users"
-  `;
-  const pairs: Array<{ base: string; quote: string }> = [];
-  const baseCurrency = await db.user.findFirst({
-    select: { baseCurrency: true },
-    orderBy: { createdAt: "asc" },
-  });
-  const quote = baseCurrency?.baseCurrency ?? "CNY";
-  for (const { currency } of currencies) {
-    if (currency !== quote && !pairs.some((p) => p.base === currency && p.quote === quote)) {
-      pairs.push({ base: currency, quote });
-    }
-  }
+  // design §7.3：每个用户的本位币 × 全部使用币种（此前只用一个全局 quote，#93）
+  const pairs = await collectFxPairs();
 
   let fetched = 0;
   for (const pair of pairs) {

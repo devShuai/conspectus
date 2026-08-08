@@ -64,6 +64,32 @@ export async function saveFxRate(
   });
 }
 
+/**
+ * 每日抓取的币种对（design §7.3「用户实际用到的币种对」）：
+ * 每个用户的本位币 × 全部使用币种（账单 paid/pending + 订阅 + 用户本位币）。
+ * 此前只取最早一个用户的本位币当全局 quote，其他本位币用户的投影永远补不上（#93）。
+ */
+export async function collectFxPairs(): Promise<Array<{ base: string; quote: string }>> {
+  const used = await db.$queryRaw<Array<{ currency: string }>>`
+    SELECT DISTINCT currency FROM "billing_records" WHERE "status" IN ('paid', 'pending')
+    UNION
+    SELECT DISTINCT currency FROM "subscriptions"
+    UNION
+    SELECT DISTINCT "baseCurrency" AS currency FROM "users"
+  `;
+  const quoteRows = await db.user.findMany({
+    select: { baseCurrency: true },
+    distinct: ["baseCurrency"],
+  });
+  const pairs: Array<{ base: string; quote: string }> = [];
+  for (const { baseCurrency: quote } of quoteRows) {
+    for (const { currency: base } of used) {
+      if (base !== quote) pairs.push({ base, quote });
+    }
+  }
+  return pairs;
+}
+
 /** Count paid records missing a projection for the user's base currency. */
 export async function countMissingProjections(
   userId: string,
