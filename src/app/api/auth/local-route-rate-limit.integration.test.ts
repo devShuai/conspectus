@@ -1,5 +1,5 @@
 import { NextRequest } from "next/server";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { loadAppUrl } from "@/server/auth/config";
 import { db } from "@/server/db";
@@ -22,7 +22,10 @@ function request(path: string, ip: string, fields: Record<string, string>): Next
 }
 
 describe.skipIf(DISABLED)("local auth route rate limits", () => {
+  // 本地端点在默认 certus 模式下 404（#97）；本组用例针对 local 路由本身
+  beforeEach(() => vi.stubEnv("AUTH_MODE", "both"));
   afterEach(async () => {
+    vi.unstubAllEnvs();
     await db.rateLimitCounter.deleteMany({
       where: { scope: { startsWith: "auth:" } },
     });

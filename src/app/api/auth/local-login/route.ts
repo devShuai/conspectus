@@ -1,8 +1,9 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import { authModeGate, wantsHtmlRedirect } from "@/server/auth/auth-mode";
 import { SESSION_COOKIE_NAME, sessionCookieOptions } from "@/server/auth/cookies";
-import { loadAppUrl, loadAuthConfig } from "@/server/auth/config";
+import { loadAppUrl } from "@/server/auth/config";
 import {
   clientIpFromRequest,
   emailRateLimitKey,
@@ -19,6 +20,10 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  // 模式闸门（§7.1）：certus-only 部署下本地登录必须 404 而不是隐藏入口
+  const gate = authModeGate("local");
+  if (gate) return gate;
+
   const appUrl = loadAppUrl();
   if (!isSameOriginAuthRequest(request, appUrl)) {
     return NextResponse.json(
@@ -43,7 +48,8 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
       },
     );
   }
-  const config = loadAuthConfig();
+  // local 模式下不要求 CERTUS_*：会话 Cookie 只需要 secure 判定（#97）
+  const cookieConfig = { secureCookies: appUrl.protocol === "https:" };
 
   try {
     const login = await loginLocalUser({ email, password });
@@ -54,16 +60,22 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 401 },
       );
     }
-    const response = NextResponse.redirect(new URL("/", config.appUrl), 303);
+    const response = NextResponse.redirect(new URL("/", appUrl), 303);
     response.headers.set("Cache-Control", "no-store");
     response.cookies.set(
       SESSION_COOKIE_NAME,
       login.token,
-      sessionCookieOptions(config, login.sessionExpiresAt),
+      sessionCookieOptions(cookieConfig, login.sessionExpiresAt),
     );
     return response;
   } catch (cause) {
     if (cause instanceof LocalAuthError) {
+      // 浏览器表单导航回登录页展示错误；API 调用保持 JSON 契约
+      if (wantsHtmlRedirect(request)) {
+        const target = new URL("/login", appUrl);
+        target.searchParams.set("error", cause.code);
+        return NextResponse.redirect(target, 303);
+      }
       const status =
         cause.code === "account_locked"
           ? 423

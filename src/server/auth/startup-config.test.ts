@@ -26,8 +26,7 @@ describe("loadStartupConfig", () => {
   });
 
   it.each([
-    ["local mode", { ...base, AUTH_MODE: "local" }],
-    ["both mode", { ...base, AUTH_MODE: "both" }],
+    ["invalid mode", { ...base, AUTH_MODE: "oidc" }],
     ["missing cron secret", { ...base, CRON_SECRET: "" }],
     ["placeholder cron secret", { ...base, CRON_SECRET: "change-me" }],
     ["missing probe secret", { ...base, DEPLOY_PROBE_SECRET: "" }],
@@ -36,6 +35,25 @@ describe("loadStartupConfig", () => {
     ["test database url in production (#64)", { ...base, NODE_ENV: "production", TEST_DATABASE_URL: "postgres://test/db" }],
   ])("rejects %s", (_name, environment) => {
     expect(() => loadStartupConfig(environment)).toThrow();
+  });
+
+  it("accepts local mode without CERTUS_* variables (#97)", () => {
+    const { CERTUS_ISSUER, CERTUS_CLIENT_ID, CERTUS_CLIENT_SECRET, ...rest } = base;
+    void CERTUS_ISSUER; void CERTUS_CLIENT_ID; void CERTUS_CLIENT_SECRET;
+    const config = loadStartupConfig({ ...rest, AUTH_MODE: "local" });
+    expect(config.authMode).toBe("local");
+    expect(config.auth).toBeNull();
+  });
+
+  it("accepts both mode with certus config loaded", () => {
+    const config = loadStartupConfig({ ...base, AUTH_MODE: "both" });
+    expect(config.authMode).toBe("both");
+    expect(config.auth?.clientId).toBe("conspectus");
+  });
+
+  it("rejects local mode without AUTH_SECRET", () => {
+    const config = { ...base, AUTH_MODE: "local", AUTH_SECRET: "" };
+    expect(() => loadStartupConfig(config)).toThrow(/AUTH_SECRET/);
   });
 
   it("accepts TEST_DATABASE_URL outside production (#64)", () => {

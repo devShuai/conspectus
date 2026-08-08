@@ -1,5 +1,8 @@
 import { NextRequest } from "next/server";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+// 本地端点在默认 certus 模式下 404（#97）；本组用例针对 local 路由本身
+beforeEach(() => vi.stubEnv("AUTH_MODE", "both"));
 
 import { POST as login } from "./local-login/route";
 import { POST as register } from "./local-register/route";

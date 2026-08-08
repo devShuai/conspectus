@@ -1,12 +1,15 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import { authModeGate } from "@/server/auth/auth-mode";
 import { consumeEmailVerificationToken } from "@/server/auth/one-time-tokens";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  const gate = authModeGate("local");
+  if (gate) return gate;
   const token = request.nextUrl.searchParams.get("token");
   if (!token) {
     return NextResponse.json({ ok: false, error: "missing_token" }, { status: 400 });

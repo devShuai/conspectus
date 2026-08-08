@@ -11,6 +11,7 @@ import {
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
 } from "@/server/auth/cookies";
+import { authModeGate } from "@/server/auth/auth-mode";
 import { loadAuthConfig } from "@/server/auth/config";
 import { dbSessionWriter } from "@/server/auth/db-flow";
 import {
@@ -30,6 +31,9 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // 模式闸门（§7.1）：local-only 部署下 certus 回调必须 404
+  const gate = authModeGate("certus");
+  if (gate) return gate;
   const config = loadAuthConfig();
   const transactionHandle = request.cookies.get(OIDC_TRANSACTION_COOKIE_NAME)?.value;
   const reauthContext = request.cookies.get(REAUTH_COOKIE_NAME)?.value;

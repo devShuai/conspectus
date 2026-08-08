@@ -49,7 +49,16 @@ export async function GET(request: Request): Promise<NextResponse> {
     );
   }
 
-  const key = `${startup.auth.issuerIdentifier}\0${startup.auth.clientId}`;
+  // local 模式无 certus 可探：深探针如实报告跳过（§5.4 就绪分层）
+  const auth = startup.auth;
+  if (!auth) {
+    return NextResponse.json(
+      { status: "ready", deep: { ok: true, skipped: "certus disabled (AUTH_MODE=local)" } },
+      { headers: { "cache-control": "no-store" } },
+    );
+  }
+
+  const key = `${auth.issuerIdentifier}\0${auth.clientId}`;
   const cached = deepCache.get(key);
   if (cached && Date.now() - cached.at < DEEP_CACHE_TTL_MS) {
     return jsonFrom(cached.body);
@@ -59,7 +68,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   let pending = deepInFlight.get(key);
   if (!pending) {
     pending = (async () => {
-      const evidence = await fetchClientCapabilities(startup.auth);
+      const evidence = await fetchClientCapabilities(auth);
       const evaluation = evaluateCapabilities(evidence);
       return {
         ok:

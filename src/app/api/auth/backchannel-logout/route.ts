@@ -2,6 +2,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { db } from "@/server/db";
+import { authModeGate } from "@/server/auth/auth-mode";
 import { loadAuthConfig } from "@/server/auth/config";
 import {
   deleteCertusSessionsBySub,
@@ -25,6 +26,8 @@ export const dynamic = "force-dynamic";
  * - Never writes User.suspended (logout is not account disablement).
  */
 export async function POST(request: NextRequest): Promise<NextResponse> {
+  const gate = authModeGate("certus");
+  if (gate) return gate;
   const config = loadAuthConfig();
   const form = await request.formData();
   const rawToken = form.get("logout_token");

@@ -1,6 +1,7 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
+import { authModeGate } from "@/server/auth/auth-mode";
 import {
   OIDC_TRANSACTION_COOKIE_NAME,
   RETURN_COOKIE_NAME,
@@ -20,6 +21,9 @@ function sanitizeReturn(raw: string | null): string | null {
 }
 
 export async function GET(request: NextRequest): Promise<NextResponse> {
+  // 模式闸门（§7.1）：local-only 部署下 certus 端点必须 404
+  const gate = authModeGate("certus");
+  if (gate) return gate;
   const config = loadAuthConfig();
   const login = await startOIDCLogin({ config });
   const response = NextResponse.redirect(login.authorizationUrl, 302);

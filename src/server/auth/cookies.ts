@@ -16,7 +16,7 @@ interface CookieOptions {
 }
 
 export function sessionCookieOptions(
-  config: AuthConfig,
+  config: Pick<AuthConfig, "secureCookies">,
   expiresAt: number,
 ): CookieOptions {
   return {
@@ -43,7 +43,9 @@ export function transactionCookieOptions(
   };
 }
 
-export function expiredSessionCookieOptions(config: AuthConfig): CookieOptions {
+export function expiredSessionCookieOptions(
+  config: Pick<AuthConfig, "secureCookies">,
+): CookieOptions {
   return {
     ...sessionCookieOptions(config, 0),
     maxAge: 0,

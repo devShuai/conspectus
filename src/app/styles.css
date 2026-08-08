@@ -500,3 +500,10 @@ code {
   display: grid;
   gap: 12px;
 }
+
+.auth-form {
+  display: grid;
+  gap: 14px;
+  max-width: 360px;
+  margin-top: 12px;
+}
