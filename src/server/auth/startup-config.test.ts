@@ -32,8 +32,17 @@ describe("loadStartupConfig", () => {
     ["missing probe secret", { ...base, DEPLOY_PROBE_SECRET: "" }],
     ["probe equals cron", { ...base, DEPLOY_PROBE_SECRET: "cron-secret-value" }],
     ["ttl >= max stale", { ...base, IDENTITY_STATUS_TTL: "2d", IDENTITY_STATUS_MAX_STALE: "1d" }],
+    ["test database url in production (#64)", { ...base, NODE_ENV: "production", TEST_DATABASE_URL: "postgres://test/db" }],
   ])("rejects %s", (_name, environment) => {
     expect(() => loadStartupConfig(environment)).toThrow();
+  });
+
+  it("accepts TEST_DATABASE_URL outside production (#64)", () => {
+    const config = loadStartupConfig({
+      ...base,
+      TEST_DATABASE_URL: "postgres://test/db",
+    });
+    expect(config.authMode).toBe("certus");
   });
 
   it("parses duration strings", () => {

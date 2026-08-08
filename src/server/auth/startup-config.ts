@@ -31,6 +31,17 @@ export function loadStartupConfig(
     );
   }
 
+  // 数据源闸门（issue #64）：TEST_DATABASE_URL 出现在生产环境本身就是部署事故，
+  // 与 CRON_SECRET 非默认值同级，拒绝服务而不是静默切换数据源。
+  if (
+    environment.NODE_ENV === "production" &&
+    environment.TEST_DATABASE_URL?.trim()
+  ) {
+    throw new Error(
+      "TEST_DATABASE_URL must not be set in production; it would silently switch the datasource to the test database",
+    );
+  }
+
   const auth = loadAuthConfig(environment);
   loadCredentialKeyring(environment); // throws if active key missing
 
