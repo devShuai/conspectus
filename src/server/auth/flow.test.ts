@@ -61,6 +61,9 @@ function fakeProvider(claims: OIDCClaims = validClaims()): OIDCProvider & {
     return result;
   });
   return {
+    async refreshTokens() {
+      return {};
+    },
     async createRequestSecurity() {
       return security;
     },

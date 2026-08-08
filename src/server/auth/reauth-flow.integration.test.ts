@@ -38,6 +38,9 @@ function validClaims(sub: string, authTime: number): OIDCClaims {
 
 function mockProvider(claims: OIDCClaims): OIDCProvider {
   return {
+    async refreshTokens() {
+      return {};
+    },
     async createRequestSecurity() {
       return {
         state: "test-state",

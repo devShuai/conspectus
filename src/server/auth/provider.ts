@@ -27,9 +27,16 @@ export interface OIDCProvider {
     currentUrl: URL,
     transaction: OIDCTransaction,
   ): Promise<OIDCTokenResult>;
+  /** §7.1 会话复核：refresh grant 轮换令牌（不保证返回 claims）。 */
+  refreshTokens(config: AuthConfig, refreshToken: string): Promise<OIDCRefreshedTokens>;
 }
 
 const configurationCache = new Map<string, Promise<oidc.Configuration>>();
+
+export interface OIDCRefreshedTokens {
+  refreshToken?: string;
+  idToken?: string;
+}
 
 export const certusOIDCProvider: OIDCProvider = {
   async createRequestSecurity() {
@@ -69,6 +76,16 @@ export const certusOIDCProvider: OIDCProvider = {
     }
     return {
       claims,
+      refreshToken:
+        typeof tokens.refresh_token === "string" ? tokens.refresh_token : undefined,
+      idToken: typeof tokens.id_token === "string" ? tokens.id_token : undefined,
+    };
+  },
+
+  async refreshTokens(config, refreshToken) {
+    const provider = await providerConfiguration(config);
+    const tokens = await oidc.refreshTokenGrant(provider, refreshToken);
+    return {
       refreshToken:
         typeof tokens.refresh_token === "string" ? tokens.refresh_token : undefined,
       idToken: typeof tokens.id_token === "string" ? tokens.id_token : undefined,

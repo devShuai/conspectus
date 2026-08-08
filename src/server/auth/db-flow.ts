@@ -3,6 +3,7 @@ import { db } from "@/server/db";
 import type { SessionWriter } from "./flow";
 import { upsertCertusUser } from "./jit-user";
 import { AccountSuspendedError } from "./login-policy";
+import { maybeRecheckSession } from "./session-recheck";
 import {
   createPersistentSession,
   deletePersistentSession,
@@ -52,8 +53,14 @@ export const dbSessionWriter: SessionWriter = {
   },
 
   async find(token, now) {
-    const session = await findPersistentSession(token, now ?? new Date());
-    return session ? { userId: session.userId, sessionId: session.id } : null;
+    const at = now ?? new Date();
+    const session = await findPersistentSession(token, at);
+    if (!session) return null;
+    // §7.1 会话复核：超过 15 分钟用 refresh token 轮换；
+    // 复核发现 invalid_grant 时会话已被销毁，不得再放行
+    const recheck = await maybeRecheckSession(session.id, at);
+    if (recheck === "destroyed") return null;
+    return { userId: session.userId, sessionId: session.id };
   },
 
   async delete(token) {
