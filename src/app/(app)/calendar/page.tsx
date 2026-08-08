@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { currentAppSession } from "@/server/auth/current-session";
+import { formatMoney } from "@/components/money";
 import { db } from "@/server/db";
 import { billingCalendar, type CalendarDay } from "@/server/billing/stats";
 
@@ -111,16 +112,14 @@ export default async function CalendarPage({
                       <li key={item.id}>
                         {item.name}
                         <span className="cal-amount">
-                          {item.currency} {item.amount.toFixed(2)}
+                          {formatMoney(item.amount, item.currency)}
                         </span>
                       </li>
                     ))}
                   </ul>
                   <div className="cal-subtotal">
                     {[...subtotals.entries()].map(([currency, amount]) => (
-                      <span key={currency}>
-                        {currency} {amount.toFixed(2)}
-                      </span>
+                      <span key={currency}>{formatMoney(amount, currency)}</span>
                     ))}
                   </div>
                 </>

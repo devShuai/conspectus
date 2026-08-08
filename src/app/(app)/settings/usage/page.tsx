@@ -5,6 +5,7 @@ import {
   ManualUsageUpdateForm,
 } from "@/components/settings/usage-forms";
 import { currentAppSession } from "@/server/auth/current-session";
+import { formatMoney } from "@/components/money";
 import { db } from "@/server/db";
 import {
   createManualQuotaAction,
@@ -51,7 +52,7 @@ export default async function UsageEntryPage() {
             </div>
             <p className="usage-meta">
               {quota.kind === "balance"
-                ? `剩余 ${quota.remainingValue?.toString() ?? "—"} ${quota.unit}`
+                ? `剩余 ${quota.remainingValue ? formatMoney(Number(quota.remainingValue), quota.unit) : "—"}`
                 : `已用 ${quota.usedValue?.toString() ?? "—"}${quota.limitValue ? ` / ${quota.limitValue.toString()}` : ""} ${quota.unit}`}
               {quota.valueCapturedAt &&
                 ` · ${quota.valueCapturedAt.toISOString().slice(0, 16).replace("T", " ")}`}

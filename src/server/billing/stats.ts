@@ -3,6 +3,7 @@ import { annualizedCost } from "@/server/billing/cycle";
 import { countMissingProjections } from "@/server/billing/fx";
 
 export interface DashboardStats {
+  baseCurrency: string;
   monthNetSpend: number;
   annualized: number;
   pendingEstimate: number;
@@ -82,6 +83,7 @@ export async function dashboardStats(userId: string): Promise<DashboardStats> {
   }
 
   return {
+    baseCurrency,
     monthNetSpend: monthNet,
     annualized,
     pendingEstimate,

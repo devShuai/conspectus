@@ -14,6 +14,7 @@ import {
   YAxis,
 } from "recharts";
 
+import { formatMoney } from "@/components/money";
 import type { CategorySlice, TrendMonth } from "@/server/billing/stats";
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -51,7 +52,7 @@ export function TrendChart({ data, currency }: Readonly<{ data: TrendMonth[]; cu
           <XAxis dataKey="label" fontSize={12} />
           <YAxis fontSize={12} width={70} />
           <Tooltip
-            formatter={(value) => [`${currency} ${Number(value).toFixed(2)}`, undefined]}
+            formatter={(value) => [formatMoney(Number(value), currency), undefined]}
           />
           <Legend />
           <Bar dataKey="paid" name="实际已付" fill="var(--brand-accent)" radius={[3, 3, 0, 0]} />
@@ -116,7 +117,7 @@ export function CategoryDonut({
               );
             })}
           </Pie>
-          <Tooltip formatter={(value) => [`${currency} ${Number(value).toFixed(2)} / 年`, undefined]} />
+          <Tooltip formatter={(value) => [`${formatMoney(Number(value), currency)} / 年`, undefined]} />
           <Legend />
         </PieChart>
       </ResponsiveContainer>

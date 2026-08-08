@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 import { currentAppSession } from "@/server/auth/current-session";
+import { formatMoney } from "@/components/money";
 import { listSubscriptions } from "@/server/billing/subscriptions";
 import { dashboardStats } from "@/server/billing/stats";
 
@@ -24,7 +25,7 @@ export default async function DashboardPage() {
         <div className="stat-card">
           <div className="stat-label">本月净支出</div>
           <div className="stat-value">
-            ¥{stats.monthNetSpend.toFixed(2)}
+            {formatMoney(stats.monthNetSpend, stats.baseCurrency)}
             {stats.incomplete && (
               <span className="stat-warn"> 缺 {stats.missingProjections} 条投影</span>
             )}
@@ -32,11 +33,13 @@ export default async function DashboardPage() {
         </div>
         <div className="stat-card">
           <div className="stat-label">年化成本</div>
-          <div className="stat-value">¥{stats.annualized.toFixed(2)}</div>
+          <div className="stat-value">{formatMoney(stats.annualized, stats.baseCurrency)}</div>
         </div>
         <div className="stat-card">
           <div className="stat-label">预计将付</div>
-          <div className="stat-value">¥{stats.pendingEstimate.toFixed(2)}</div>
+          <div className="stat-value">
+            {formatMoney(stats.pendingEstimate, stats.baseCurrency)}
+          </div>
         </div>
         <div className="stat-card">
           <div className="stat-label">订阅</div>
