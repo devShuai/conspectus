@@ -22,17 +22,25 @@ export async function ingestReadings(
 ): Promise<IngestResult> {
   const rejected: IngestResult["rejected"] = [];
   const deviceId = options.deviceId ?? null;
+  const quotaIds = new Set<string>();
 
   for (let index = 0; index < readings.length; index++) {
     const reading = readings[index];
     try {
-      await ingestOne(userId, reading, now, deviceId);
+      const quotaId = await ingestOne(userId, reading, now, deviceId);
+      if (quotaId) quotaIds.add(quotaId);
     } catch (cause) {
       rejected.push({
         index,
         reason: cause instanceof IngestError ? cause.reason : "unexpected_error",
       });
     }
+  }
+
+  // 用量类规则求值入口（§7.6 / #114）：每次 ingest 后对受影响的 quota 求值
+  if (quotaIds.size > 0) {
+    const { evaluateUsageRules } = await import("../notify/usage-rules");
+    await evaluateUsageRules(userId, [...quotaIds], now);
   }
 
   return { accepted: readings.length - rejected.length, rejected };
@@ -43,7 +51,7 @@ async function ingestOne(
   reading: UsageReading,
   now: Date,
   deviceId: string | null,
-): Promise<void> {
+): Promise<string | null> {
   const binding = await db.usageBinding.findUnique({
     where: { id: reading.bindingId },
     include: { quota: true },
@@ -144,6 +152,7 @@ async function ingestOne(
     // count === 0 is the normal "a newer reading already won" outcome, or this
     // binding is not authoritative: the snapshot is still recorded either way.
   });
+  return quota.id;
 }
 
 function decimalValue(reading: UsageReading, kind: string): ReturnType<typeof toDecimal> | null {

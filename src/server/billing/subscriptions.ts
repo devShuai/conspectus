@@ -223,7 +223,7 @@ export async function updateSubscription(
     );
   }
 
-  return db.subscription.update({
+  const updated = await db.subscription.update({
     where: { id: existing.id },
     data: {
       name: merged.name,
@@ -242,6 +242,39 @@ export async function updateSubscription(
       vendorId: merged.vendorId ?? null,
     },
   });
+
+  // price_change 检测与求值入口（§7.6 / #114）：价格变动落 PriceChange 并出事件
+  if (input.price !== undefined && Number(input.price) !== Number(existing.price)) {
+    const priceChange = await db.priceChange.create({
+      data: {
+        userId,
+        subscriptionId: existing.id,
+        oldPrice: existing.price,
+        newPrice: input.price,
+        currency: merged.currency,
+        detectedBy: "user",
+        effectiveAt: new Date(),
+      },
+    });
+    const vendor = merged.vendorId
+      ? await db.vendor.findUnique({ where: { id: merged.vendorId }, select: { name: true } })
+      : null;
+    const { notifyPriceChange } = await import("@/server/notify/usage-rules");
+    await notifyPriceChange({
+      userId,
+      priceChangeId: priceChange.id,
+      subscriptionId: existing.id,
+      name: updated.name,
+      vendor: vendor?.name ?? null,
+      oldPrice: String(existing.price),
+      newPrice: String(input.price),
+      currency: updated.currency,
+      detectedBy: "user",
+      effectiveAt: priceChange.effectiveAt,
+    });
+  }
+
+  return updated;
 }
 
 export async function changeSubscriptionStatus(

@@ -180,7 +180,20 @@ export async function emitArmedEvent(input: {
       occurredAt,
     );
     if (!won) return null;
-    const event = await insertEvent(tx, input, occurredAt);
+    const event = await insertEvent(
+      tx,
+      {
+        userId: input.userId,
+        ruleId: input.ruleId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        // armKey 写入 dedupeKey 片段（§7.6）：同一 episode 并发只有一个事件，
+        // clear 后的新一轮 episode 用新 armKey 自然换 key
+        dedupeKey: `${input.dedupeKey}#${won}`,
+        payload: input.payload,
+      },
+      occurredAt,
+    );
     if (!event) return null;
     const user = await tx.user.findUniqueOrThrow({
       where: { id: input.userId },
@@ -271,6 +284,37 @@ export async function runNotificationScan(now: Date = new Date()): Promise<{
 
     const config = rule.config as unknown as RuleConfig;
     const daysBefore = config.daysBefore ?? [7, 1];
+
+    if (rule.type === "collector_stale") {
+      // 每小时扫描设备离线（§7.6 / #114）：基准时间冻结故离线期间只提醒一次；
+      // 恢复上报后再离线自然换键。已撤销设备不报警（§7.6 过滤）。
+      const thresholdDays = config.days ?? 3;
+      const devices = await db.collectorDevice.findMany({
+        where: { userId: rule.userId, revokedAt: null },
+      });
+      const today = localToday(now, user.timezone);
+      for (const device of devices) {
+        const baseline = device.lastSeenAt ?? device.createdAt;
+        const offlineDays = localDaysBetween(baseline, today, user.timezone);
+        if (offlineDays < thresholdDays) continue;
+        const emitted = await emitEvent({
+          userId: rule.userId,
+          ruleId: rule.id,
+          subjectType: "device",
+          subjectId: device.id,
+          dedupeKey: `stale:${baseline.toISOString().slice(0, 10)}`,
+          payload: {
+            deviceId: device.id,
+            deviceName: device.name,
+            days: offlineDays,
+            baselineAt: baseline.toISOString(),
+          },
+          occurredAt: now,
+        });
+        if (emitted) events++;
+      }
+      continue;
+    }
 
     if (rule.type === "renewal_due" || rule.type === "trial_ending") {
       // 扫描必须带 subject 状态过滤（§7.6）：renewal 只看 active，trial 只看 trial

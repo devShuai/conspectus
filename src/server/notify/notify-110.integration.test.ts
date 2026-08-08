@@ -159,8 +159,12 @@ describe.skipIf(DISABLED)("notification runtime semantics (#110)", () => {
       },
     });
 
-    const { events } = await runNotificationScan(new Date());
-    expect(events).toBe(1); // 身份过期不再吞事件（#110）
+    await runNotificationScan(new Date());
+    // 全局扫描会处理其他并发 fixture 的规则 —— 只断言本 user 的 renewal_due 事件已建
+    const mine = await db.notificationEvent.findMany({
+      where: { userId: user.id, rule: { type: "renewal_due" } },
+    });
+    expect(mine.length).toBe(1); // 身份过期不再吞事件（#110）
 
     // 投递侧：立即件被 defer 回 pending 且不烧 attempts（复用已建 delivery，排程拨到过去）
     const existing = await db.notificationDelivery.findFirstOrThrow({

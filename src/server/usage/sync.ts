@@ -227,6 +227,15 @@ async function syncOne(connection: SyncConnection, now: Date): Promise<SyncOutco
         syncLeaseToken: null,
       },
     });
+    if (completed.count === 1 && (connection.status === "auth_failed" || connection.status === "degraded")) {
+      // 连接恢复 ok 后清除 connection_failed 武装（§7.6 / #114）
+      const { clearConnectionFailure } = await import("../notify/usage-rules");
+      await clearConnectionFailure({
+        userId: connection.userId,
+        connectionId: connection.id,
+        now,
+      });
+    }
     return completed.count === 1 ? "synced" : "skipped";
   } catch (cause) {
     const kind = cause instanceof ProviderError ? cause.kind : "network";
@@ -251,6 +260,17 @@ async function syncOne(connection: SyncConnection, now: Date): Promise<SyncOutco
       },
     });
     if (written.count !== 1) return "skipped";
+    if (nextStatus === "auth_failed" || nextStatus === "degraded") {
+      // 连接转入失败态 → connection_failed 求值（§7.6 / #114）
+      const { notifyConnectionFailed } = await import("../notify/usage-rules");
+      await notifyConnectionFailed({
+        userId: connection.userId,
+        connectionId: connection.id,
+        displayName: connection.displayName,
+        status: nextStatus,
+        now,
+      });
+    }
     return nextStatus === "degraded" ? "degraded" : "deferred";
   }
 }
