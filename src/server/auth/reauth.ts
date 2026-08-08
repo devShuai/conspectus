@@ -6,8 +6,11 @@ export const REAUTH_TTL_MS = 5 * 60 * 1000;
 
 export interface ReauthCreateInput {
   userId: string;
+  /** Real Session row id: a reauth is bound to one session, not to the user (#99). */
   sessionId: string;
   action: string;
+  /** Site-relative destination, stored here rather than in a cookie (#98). */
+  targetPath: string;
   now?: Date;
 }
 
@@ -33,6 +36,7 @@ export async function createReauthTransaction(
       userId: input.userId,
       sessionId: input.sessionId,
       action: input.action,
+      targetPath: input.targetPath,
       tokenHash: hashToken(token),
       expiresAt: new Date(now.getTime() + REAUTH_TTL_MS),
     },
@@ -110,6 +114,7 @@ export async function findReauthTransaction(token: string): Promise<{
   userId: string;
   sessionId: string;
   action: string;
+  targetPath: string | null;
   createdAt: Date;
   expiresAt: Date;
   verifiedAt: Date | null;
@@ -122,6 +127,7 @@ export async function findReauthTransaction(token: string): Promise<{
       userId: true,
       sessionId: true,
       action: true,
+      targetPath: true,
       createdAt: true,
       expiresAt: true,
       verifiedAt: true,

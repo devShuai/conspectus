@@ -39,7 +39,9 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   }
   const consumed = await consumeReauthTransaction({
     token: reauthToken,
-    sessionId: session.userId, // M1 simplification: session row id not tracked here
+    // Real session row id: a reauth completed on another device must not be
+    // usable by this one (#99).
+    sessionId: session.sessionId,
     userId: session.userId,
     action: "export",
   });

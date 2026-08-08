@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
+import { createPersistentSession } from "./session-db";
 
 import { certusSubjectFromClaims, type OIDCClaims } from "./claims";
 import type { AuthConfig } from "./config";
@@ -84,9 +85,11 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
   it("start issues an authorization URL with prompt=login&max_age=0 and a context", async () => {
     const claims = validClaims(unique("sub-start"), Math.floor(Date.now() / 1000));
     const user = await makeUserForClaims(claims);
+    const session = await createPersistentSession({ userId: user.id, authMethod: "certus" });
 
     const flow = await startReauthFlow({
       userId: user.id,
+      sessionId: session.sessionId,
       action: "export",
       targetPath: "/settings/data",
       config,
@@ -97,13 +100,18 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
     expect(flow.authorizationUrl.searchParams.get("max_age")).toBe("0");
     expect(flow.authorizationUrl.searchParams.get("state")).toBe("test-state");
 
-    const context = JSON.parse(
-      Buffer.from(flow.reauthContext, "base64url").toString("utf8"),
-    );
-    expect(context.target).toBe("/settings/data");
-    const tx = await findReauthTransaction(context.token);
+    // #98: the cookie is an opaque token only. The target used to ride along as
+    // unsigned base64 JSON, which made it client-editable -> open redirect.
+    expect(() =>
+      JSON.parse(Buffer.from(flow.reauthContext, "base64url").toString("utf8")),
+    ).toThrow();
+
+    const tx = await findReauthTransaction(flow.reauthContext);
     expect(tx?.action).toBe("export");
     expect(tx?.userId).toBe(user.id);
+    // target and session binding live on the row, out of the client's reach
+    expect(tx?.targetPath).toBe("/settings/data");
+    expect(tx?.sessionId).toBe(session.sessionId);
 
     await db.user.delete({ where: { id: user.id } });
   });
@@ -111,9 +119,11 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
   it("completes a valid round trip and marks the transaction verified", async () => {
     const claims = validClaims(unique("sub-ok"), Math.floor(Date.now() / 1000));
     const user = await makeUserForClaims(claims);
+    const session = await createPersistentSession({ userId: user.id, authMethod: "certus" });
     const provider = mockProvider(claims);
     const flow = await startReauthFlow({
       userId: user.id,
+      sessionId: session.sessionId,
       action: "export",
       targetPath: "/settings/data",
       config,
@@ -143,9 +153,11 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
       Math.floor(Date.now() / 1000) - 7200,
     );
     const user = await makeUserForClaims(claims);
+    const session = await createPersistentSession({ userId: user.id, authMethod: "certus" });
     const provider = mockProvider(claims);
     const flow = await startReauthFlow({
       userId: user.id,
+      sessionId: session.sessionId,
       action: "export",
       targetPath: "/settings/data",
       config,
@@ -162,9 +174,7 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
       }),
     ).rejects.toThrow(ReauthFlowError);
 
-    const context = JSON.parse(
-      Buffer.from(flow.reauthContext, "base64url").toString("utf8"),
-    );
+    const context = { token: flow.reauthContext };
     const tx = await findReauthTransaction(context.token);
     expect(tx?.consumedAt).not.toBeNull();
 
@@ -174,10 +184,12 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
   it("rejects when the callback is a different account", async () => {
     const ownerClaims = validClaims(unique("sub-owner"), Math.floor(Date.now() / 1000));
     const user = await makeUserForClaims(ownerClaims);
+    const session = await createPersistentSession({ userId: user.id, authMethod: "certus" });
     const otherClaims = validClaims(unique("sub-other"), Math.floor(Date.now() / 1000));
 
     const flow = await startReauthFlow({
       userId: user.id,
+      sessionId: session.sessionId,
       action: "export",
       targetPath: "/settings/data",
       config,
@@ -200,9 +212,11 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
   it("rejects a wrong state before any verification", async () => {
     const claims = validClaims(unique("sub-state"), Math.floor(Date.now() / 1000));
     const user = await makeUserForClaims(claims);
+    const session = await createPersistentSession({ userId: user.id, authMethod: "certus" });
     const provider = mockProvider(claims);
     const flow = await startReauthFlow({
       userId: user.id,
+      sessionId: session.sessionId,
       action: "export",
       targetPath: "/settings/data",
       config,
@@ -219,11 +233,75 @@ describe.skipIf(DISABLED)("reauth flow (#71)", () => {
       }),
     ).rejects.toThrow(ReauthFlowError);
 
-    const context = JSON.parse(
-      Buffer.from(flow.reauthContext, "base64url").toString("utf8"),
-    );
+    const context = { token: flow.reauthContext };
     const tx = await findReauthTransaction(context.token);
     expect(tx?.verifiedAt).toBeNull();
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+});
+
+describe.skipIf(DISABLED)("reauth hardening (#98 #99)", () => {
+  it("refuses an absolute or protocol-relative target at start (#98)", async () => {
+    const claims = validClaims(unique("sub-target"), Math.floor(Date.now() / 1000));
+    const user = await makeUserForClaims(claims);
+    const session = await createPersistentSession({ userId: user.id, authMethod: "certus" });
+
+    // note the escape: the third case must contain a real backslash, which some
+    // browsers normalise to "/" and would otherwise become //evil.example
+    for (const target of ["https://evil.example", "//evil.example", "/\\evil.example"]) {
+      await expect(
+        startReauthFlow({
+          userId: user.id,
+          sessionId: session.sessionId,
+          action: "export",
+          targetPath: target,
+          config,
+          provider: mockProvider(claims),
+        }),
+      ).rejects.toMatchObject({ code: "invalid_context" });
+    }
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("a rewritten context cookie cannot redirect anywhere (#98)", async () => {
+    // The old shape was base64(JSON) carrying the target, so this was the whole
+    // attack: re-encode with an external target and the callback followed it.
+    const forged = Buffer.from(
+      JSON.stringify({ token: "whatever", target: "https://evil.example" }),
+      "utf8",
+    ).toString("base64url");
+
+    await expect(
+      completeReauthFlow({
+        currentUrl: new URL("http://localhost:3000/api/auth/certus/callback?code=c&state=s"),
+        oidcHandle: undefined,
+        reauthContext: forged,
+        config,
+        provider: mockProvider(validClaims(unique("sub-forged"), Math.floor(Date.now() / 1000))),
+      }),
+    ).rejects.toBeInstanceOf(ReauthFlowError);
+  });
+
+  it("binds the transaction to the session that started it (#99)", async () => {
+    const claims = validClaims(unique("sub-sess"), Math.floor(Date.now() / 1000));
+    const user = await makeUserForClaims(claims);
+    const deviceA = await createPersistentSession({ userId: user.id, authMethod: "certus" });
+    const deviceB = await createPersistentSession({ userId: user.id, authMethod: "certus" });
+
+    const flow = await startReauthFlow({
+      userId: user.id,
+      sessionId: deviceA.sessionId,
+      action: "export",
+      targetPath: "/settings/data",
+      config,
+      provider: mockProvider(claims),
+    });
+    const tx = await findReauthTransaction(flow.reauthContext);
+    expect(tx?.sessionId).toBe(deviceA.sessionId);
+    // same user, different session -> must not be able to consume it
+    expect(tx?.sessionId).not.toBe(deviceB.sessionId);
 
     await db.user.delete({ where: { id: user.id } });
   });

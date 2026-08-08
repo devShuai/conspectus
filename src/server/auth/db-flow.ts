@@ -49,7 +49,7 @@ export const dbSessionWriter: SessionWriter = {
 
   async find(token, now) {
     const session = await findPersistentSession(token, now ?? new Date());
-    return session ? { userId: session.userId } : null;
+    return session ? { userId: session.userId, sessionId: session.id } : null;
   },
 
   async delete(token) {

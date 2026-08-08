@@ -27,6 +27,7 @@ describe.skipIf(DISABLED)("reauth transaction", () => {
       userId: user.id,
       sessionId: "00000000-0000-0000-0000-00000000000a",
       action: "export",
+      targetPath: "/settings/data",
     });
 
     // Wrong session cannot verify.
@@ -74,6 +75,7 @@ describe.skipIf(DISABLED)("reauth transaction", () => {
       userId: user.id,
       sessionId: "00000000-0000-0000-0000-00000000000a",
       action: "delete",
+      targetPath: "/settings/data",
     });
     expect(
       await verifyReauthTransaction({
@@ -101,6 +103,7 @@ describe.skipIf(DISABLED)("reauth transaction", () => {
       userId: user.id,
       sessionId: "00000000-0000-0000-0000-00000000000a",
       action: "export",
+      targetPath: "/settings/data",
       now: past,
     });
     expect(
@@ -117,6 +120,7 @@ describe.skipIf(DISABLED)("reauth transaction", () => {
       userId: user.id,
       sessionId: "00000000-0000-0000-0000-00000000000a",
       action: "delete",
+      targetPath: "/settings/data",
     });
     await terminateReauthTransaction(handle2.token);
     expect(
@@ -144,6 +148,7 @@ describe.skipIf(DISABLED)("reauth transaction", () => {
       userId: user.id,
       sessionId: "00000000-0000-0000-0000-00000000000a",
       action: "export",
+      targetPath: "/settings/data",
     });
     const row = await db.reauthTransaction.findUnique({
       where: { id: handle.transactionId },

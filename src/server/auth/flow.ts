@@ -56,7 +56,11 @@ export interface SessionWriter {
     idToken?: string | null;
     now?: Date;
   }): Promise<{ sessionToken: string; userId: string; sessionExpiresAt: number }>;
-  find(token: string | undefined, now?: Date): Promise<{ userId: string } | null>;
+  /** Returns the session row id too: reauth binds to the session, not just the user (#99). */
+  find(
+    token: string | undefined,
+    now?: Date,
+  ): Promise<{ userId: string; sessionId: string } | null>;
   delete(token: string | undefined): Promise<void>;
 }
 

@@ -5,6 +5,8 @@ import { dbSessionWriter } from "./db-flow";
 
 export interface CurrentSession {
   userId: string;
+  /** Session row id; sensitive actions bind their reauth to it (#99). */
+  sessionId: string;
 }
 
 export async function currentAppSession(): Promise<CurrentSession | null> {

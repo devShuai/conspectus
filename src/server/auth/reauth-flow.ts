@@ -39,6 +39,18 @@ export class ReauthFlowError extends Error {
 
 /** 允许发起 reauth 的敏感动作（设计 §7.1）。 */
 export const REAUTH_ACTIONS = ["export"] as const;
+
+/**
+ * Only same-site relative paths may become a redirect target. Protocol-relative
+ * (`//host`) and absolute URLs are rejected outright rather than coerced, so a
+ * bad value fails loudly instead of silently landing on "/".
+ */
+export function safeTargetPath(raw: string): string {
+  if (!raw.startsWith("/") || raw.startsWith("//") || raw.includes("\\")) {
+    throw new ReauthFlowError("invalid_context");
+  }
+  return raw;
+}
 export type ReauthAction = (typeof REAUTH_ACTIONS)[number];
 
 export interface ReauthFlowStart {
@@ -52,10 +64,11 @@ export interface ReauthFlowStart {
 /**
  * 敏感操作重新认证（design §7.1）：certus 侧 `prompt=login&max_age=0` 重新授权，
  * 回调校验 auth_time 与 sub 后 CAS verifiedAt；目标 Action 再 CAS consumedAt。
- * sessionId 暂以 userId 代替 —— 与 /api/export 的 M1 简化一致（会话行 id 未暴露给 RSC）。
+ * 事务绑定**真实 Session.id**（#99）；目标路径存在事务行上、Cookie 只带不透明 token（#98）。
  */
 export async function startReauthFlow(input: {
   userId: string;
+  sessionId: string;
   action: ReauthAction;
   targetPath: string;
   config?: AuthConfig;
@@ -65,10 +78,15 @@ export async function startReauthFlow(input: {
   const config = input.config ?? loadAuthConfig();
   const provider = input.provider ?? certusOIDCProvider;
 
+  // Refuse anything that is not a same-site relative path before it is stored;
+  // the callback checks again when redirecting (#98, defence in depth).
+  const targetPath = safeTargetPath(input.targetPath);
+
   const reauth = await createReauthTransaction({
     userId: input.userId,
-    sessionId: input.userId, // M1 简化，见上文
+    sessionId: input.sessionId,
     action: input.action,
+    targetPath,
     now: input.now !== undefined ? new Date(input.now) : undefined,
   });
 
@@ -86,10 +104,9 @@ export async function startReauthFlow(input: {
     input.now,
   );
 
-  const reauthContext = Buffer.from(
-    JSON.stringify({ token: reauth.token, target: input.targetPath }),
-    "utf8",
-  ).toString("base64url");
+  // Cookie carries the opaque token only. It used to carry the target as
+  // unsigned base64 JSON, so rewriting it produced an open redirect (#98).
+  const reauthContext = reauth.token;
 
   return {
     authorizationUrl,
@@ -118,18 +135,10 @@ export async function completeReauthFlow(input: {
   const provider = input.provider ?? certusOIDCProvider;
   const now = input.now ?? Date.now();
 
-  let context: { token: string; target: string };
-  try {
-    const parsed = JSON.parse(
-      Buffer.from(input.reauthContext ?? "", "base64url").toString("utf8"),
-    );
-    if (typeof parsed.token !== "string" || typeof parsed.target !== "string") {
-      throw new Error("bad shape");
-    }
-    context = parsed;
-  } catch {
-    throw new ReauthFlowError("invalid_context");
-  }
+  // Opaque token only; everything else about this reauth comes from the row.
+  const contextToken = input.reauthContext;
+  if (!contextToken) throw new ReauthFlowError("invalid_context");
+  const context = { token: contextToken };
 
   const reauthTx = await findReauthTransaction(context.token);
   if (
@@ -213,7 +222,13 @@ export async function completeReauthFlow(input: {
     return fail("verify_failed");
   }
 
-  return { action: reauthTx.action, targetPath: context.target, token: context.token };
+  // Second check on the way out: even a server-stored value is re-validated
+  // before it becomes a redirect target (#98).
+  return {
+    action: reauthTx.action,
+    targetPath: safeTargetPath(reauthTx.targetPath ?? "/"),
+    token: context.token,
+  };
 }
 
 function equalOpaqueValue(left: string, right: string): boolean {

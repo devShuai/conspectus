@@ -41,6 +41,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
 
   const flow = await startReauthFlow({
     userId: session.userId,
+    sessionId: session.sessionId,
     action: rawAction as ReauthAction,
     targetPath: target,
   });

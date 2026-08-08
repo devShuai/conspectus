@@ -200,6 +200,8 @@ model ReauthTransaction {
   userId    String   @db.Uuid
   sessionId String   @db.Uuid
   action    String   @db.Text
+  /// Post-reauth destination, kept server-side so it cannot be tampered with (#98).
+  targetPath String? @db.Text
   tokenHash Bytes    @unique
   expiresAt DateTime @db.Timestamptz
   verifiedAt DateTime? @db.Timestamptz

@@ -21,7 +21,11 @@ export const memorySessionWriter: SessionWriter = {
 
   async find(token, now) {
     const session: AppSession | null = findAppSession(token, now?.getTime());
-    return session ? { userId: session.userId } : null;
+    // No row id in the in-memory store; the token digest is a stable,
+    // per-session identifier, which is all the reauth binding needs.
+    return session
+      ? { userId: session.userId, sessionId: tokenDigest(token ?? "") }
+      : null;
   },
 
   async delete(token) {
