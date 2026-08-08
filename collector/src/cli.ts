@@ -60,23 +60,43 @@ async function main(): Promise<void> {
       const dryRun = args.includes("--dry-run");
       const manifest = await fetchManifest(config);
       const readings: UsageReading[] = [];
+      const collectorErrors: Array<{ collectorId: string; error: string }> = [];
       for (const collector of listCollectors()) {
-        if (!(await collector.detect())) continue;
-        const bindings = manifest.map((id) => ({
-          bindingId: id,
-          metric: "",
-          kind: "quota" as const,
-          unit: "",
-        }));
-        const collected = await collector.collect({ bindings });
-        readings.push(...collected);
+        try {
+          if (!(await collector.detect())) continue;
+          // CLI 只为 manifest 中匹配本 collector 的 binding 生成读数（#88）；
+          // metric/kind/unit 一律来自 binding，不猜、不硬编码
+          const bindings = manifest
+            .filter((b) => b.collectorId === collector.id)
+            .map((b) => ({
+              bindingId: b.bindingId,
+              metric: b.metric,
+              kind: b.kind,
+              unit: b.unit,
+            }));
+          if (bindings.length === 0) continue;
+          const collected = await collector.collect({ bindings });
+          readings.push(...collected);
+        } catch (cause) {
+          // 单个 collector 失败不中断其余（§7.4 采集器独立性）
+          collectorErrors.push({
+            collectorId: collector.id,
+            error: cause instanceof Error ? cause.message : String(cause),
+          });
+        }
       }
       if (dryRun) {
-        console.log(JSON.stringify({ dryRun: true, readings }, null, 2));
+        console.log(JSON.stringify({ dryRun: true, readings, collectorErrors }, null, 2));
+        return;
+      }
+      if (readings.length === 0) {
+        console.log(
+          JSON.stringify({ accepted: 0, rejected: [], note: "无可上报读数", collectorErrors }),
+        );
         return;
       }
       const result = await reportReadings(config, readings);
-      console.log(JSON.stringify(result));
+      console.log(JSON.stringify({ ...result, collectorErrors }));
       return;
     }
     default:

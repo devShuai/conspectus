@@ -52,13 +52,22 @@ export async function reportReadings(
   return (await response.json()) as ReportResult;
 }
 
+export interface ManifestBinding {
+  bindingId: string;
+  collectorId: string;
+  subscriptionName?: string;
+  metric: string;
+  kind: "quota" | "balance" | "counter";
+  unit: string;
+}
+
 /** Fetch the manifest of bindings this collector may write. */
-export async function fetchManifest(config: CliConfig): Promise<UsageReading["bindingId"][]> {
+export async function fetchManifest(config: CliConfig): Promise<ManifestBinding[]> {
   const tokens = await validAccessToken(config);
   const response = await fetch(`${config.serverUrl}/api/collect/manifest`, {
     headers: { authorization: `Bearer ${tokens.accessToken}` },
   });
   if (!response.ok) throw new Error(`manifest failed: ${response.status}`);
-  const body = (await response.json()) as { bindings: Array<{ bindingId: string }> };
-  return body.bindings.map((b) => b.bindingId);
+  const body = (await response.json()) as { bindings: ManifestBinding[] };
+  return body.bindings;
 }
