@@ -1,8 +1,23 @@
-import { describe, expect, it } from "vitest";
+import { createHmac } from "node:crypto";
+
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { db } from "@/server/db";
+import {
+  encryptCredential,
+  loadCredentialKeyring,
+} from "@/server/auth/crypto";
 import { armOrSkip, clearArm, emitEvent, runNotificationScan } from "./scan";
 import { dispatchDueDeliveries } from "./dispatch";
+import { webhookHeaders } from "./webhook-signing";
+
+const { postSafeWebhookMock } = vi.hoisted(() => ({
+  postSafeWebhookMock: vi.fn(),
+}));
+
+vi.mock("./webhook-safe", () => ({
+  postSafeWebhook: postSafeWebhookMock,
+}));
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 
@@ -24,6 +39,11 @@ async function setupUser() {
 }
 
 describe.skipIf(DISABLED)("notification scan + dispatch", () => {
+  beforeEach(() => {
+    postSafeWebhookMock.mockReset();
+    postSafeWebhookMock.mockResolvedValue(false);
+  });
+
   it("arm state is single-episode and re-arms after clear", async () => {
     const user = await setupUser();
     const rule = await db.notificationRule.create({
@@ -214,5 +234,63 @@ describe.skipIf(DISABLED)("notification scan + dispatch", () => {
     await db.notificationChannel.deleteMany({ where: { userId: user.id } });
     await db.notificationRule.deleteMany({ where: { userId: user.id } });
     await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("decrypts a webhook secret and sends a verifiable HMAC header", async () => {
+    const user = await setupUser();
+    const rule = await db.notificationRule.create({
+      data: { userId: user.id, type: "renewal_due", config: { daysBefore: [1] } },
+    });
+    const plaintextSecret = Buffer.from("webhook-signing-secret", "utf8");
+    const channel = await db.notificationChannel.create({
+      data: {
+        userId: user.id,
+        type: "webhook",
+        mode: "individual",
+        destination: "https://webhook.example/hook",
+        secretCipher: new Uint8Array(
+          encryptCredential(plaintextSecret, loadCredentialKeyring()),
+        ),
+      },
+    });
+    const event = await emitEvent({
+      userId: user.id,
+      ruleId: rule.id,
+      subjectType: "subscription",
+      subjectId: "00000000-0000-0000-0000-0000000000d1",
+      dedupeKey: `signed:${Date.now()}`,
+      payload: { name: "signed" },
+      occurredAt: new Date(Date.now() - 60_000),
+    });
+    postSafeWebhookMock.mockResolvedValueOnce(true);
+
+    const result = await dispatchDueDeliveries(new Date());
+    expect(result.sent).toBe(1);
+    expect(postSafeWebhookMock).toHaveBeenCalledOnce();
+    const [destination, post] = postSafeWebhookMock.mock.calls[0] as [
+      string,
+      { body: string; headers: Record<string, string> },
+    ];
+    expect(destination).toBe("https://webhook.example/hook");
+    expect(post.headers["x-conspectus-event-id"]).toBe(`evt_${event?.eventId}`);
+    expect(post.headers["x-conspectus-signature"]).toBe(
+      createHmac("sha256", plaintextSecret).update(post.body).digest("hex"),
+    );
+
+    await db.notificationDelivery.deleteMany({ where: { userId: user.id } });
+    await db.notificationEvent.deleteMany({ where: { userId: user.id } });
+    await db.notificationChannel.delete({ where: { id: channel.id } });
+    await db.notificationRule.delete({ where: { id: rule.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+});
+
+describe("webhook signing headers", () => {
+  it("omits the signature header when a webhook channel has no secret", () => {
+    const headers = webhookHeaders("evt_no_secret", "{}", null);
+    expect(headers["x-conspectus-event-id"]).toBe("evt_no_secret");
+    expect(headers).not.toHaveProperty("x-conspectus-signature");
+    expect(Object.values(headers)).not.toContain("unsigned");
   });
 });

@@ -1,7 +1,7 @@
 import { db } from "@/server/db";
 import { identityGateOk } from "@/server/auth/identity-status";
-import { decryptCredential } from "@/server/auth/crypto";
 import { postSafeWebhook } from "./webhook-safe";
+import { webhookHeaders } from "./webhook-signing";
 
 export const RETRY_STEPS_MS = [60_000, 300_000, 1_800_000];
 const MAX_ATTEMPTS = RETRY_STEPS_MS.length;
@@ -166,19 +166,10 @@ async function attemptSend(
       data: event?.payload ?? {},
     };
     if (channel.type === "webhook" && channel.destination) {
-      const secret = channel.secretCipher
-        ? decryptCredential(channel.secretCipher, undefined as never)
-        : null;
-      const signature = secret
-        ? await hmacSha256(secret, JSON.stringify(payload))
-        : "unsigned";
+      const body = JSON.stringify(payload);
       return postSafeWebhook(channel.destination, {
-        headers: {
-          "content-type": "application/json",
-          "x-conspectus-event-id": `evt_${eventId}`,
-          "x-conspectus-signature": signature,
-        },
-        body: JSON.stringify(payload),
+        headers: webhookHeaders(`evt_${eventId}`, body, channel.secretCipher),
+        body,
       });
     }
     if (channel.type === "email") {
@@ -196,9 +187,4 @@ async function attemptSend(
   } catch {
     return false;
   }
-}
-
-async function hmacSha256(secret: Uint8Array, message: string): Promise<string> {
-  const { createHmac } = await import("node:crypto");
-  return createHmac("sha256", secret).update(message).digest("hex");
 }

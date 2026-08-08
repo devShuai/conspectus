@@ -1,6 +1,7 @@
 import { db } from "@/server/db";
 import { identityGateOk } from "@/server/auth/identity-status";
 import { postSafeWebhook } from "./webhook-safe";
+import { webhookHeaders } from "./webhook-signing";
 
 export const DIGEST_RETRY_MS = [60_000, 300_000, 1_800_000];
 const MAX_ATTEMPTS = DIGEST_RETRY_MS.length;
@@ -180,25 +181,18 @@ async function attemptDigestSend(
       return true;
     }
     if (channel.type === "webhook" && channel.destination) {
-      const signature = channel.secretCipher
-        ? await signPayload(channel.secretCipher, JSON.stringify(payload))
-        : "unsigned";
+      const body = JSON.stringify(payload);
       return postSafeWebhook(channel.destination, {
-        headers: {
-          "content-type": "application/json",
-          "x-conspectus-event-id": `digest_${digest.id}`,
-          "x-conspectus-signature": signature,
-        },
-        body: JSON.stringify(payload),
+        headers: webhookHeaders(
+          `digest_${digest.id}`,
+          body,
+          channel.secretCipher,
+        ),
+        body,
       });
     }
     return false;
   } catch {
     return false;
   }
-}
-
-async function signPayload(secret: Uint8Array, message: string): Promise<string> {
-  const { createHmac } = await import("node:crypto");
-  return createHmac("sha256", secret).update(message).digest("hex");
 }
