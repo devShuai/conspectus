@@ -33,7 +33,8 @@ type Tx = Prisma.TransactionClient;
 async function armInTx(tx: Tx, input: ArmInput, now: Date): Promise<string | null> {
   const existing = await tx.notificationArmState.findUnique({
     where: {
-      ruleId_subjectType_subjectId: {
+      userId_ruleId_subjectType_subjectId: {
+        userId: input.userId,
         ruleId: input.ruleId,
         subjectType: input.subjectType,
         subjectId: input.subjectId,
@@ -43,7 +44,13 @@ async function armInTx(tx: Tx, input: ArmInput, now: Date): Promise<string | nul
   if (existing) {
     if (existing.clearedAt === null) return null; // already armed
     const updated = await tx.notificationArmState.updateMany({
-      where: { id: existing.id, clearedAt: { not: null } },
+      where: {
+        userId: input.userId,
+        ruleId: input.ruleId,
+        subjectType: input.subjectType,
+        subjectId: input.subjectId,
+        clearedAt: { not: null },
+      },
       data: { armedAt: now, clearedAt: null, armKey: input.armKey },
     });
     return updated.count === 1 ? input.armKey : null;

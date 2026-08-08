@@ -726,7 +726,6 @@ model NotificationDigest {
 }
 
 model NotificationArmState {
-  id         String @id @default(uuid()) @db.Uuid
   userId     String @db.Uuid
   ruleId     String @db.Uuid
   subjectType String @db.Text
@@ -741,8 +740,9 @@ model NotificationArmState {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   rule NotificationRule @relation(fields: [ruleId], references: [id])
 
-  @@unique([ruleId, subjectType, subjectId])
-  @@index([userId])
+  // 主键含 userId 维度（design §7.6）；组合外键 (userId, ruleId) →
+  // notification_rules(userId, id) 由手写迁移声明，Prisma 无法表达
+  @@id([userId, ruleId, subjectType, subjectId])
   @@map("notification_arm_states")
 }
 
