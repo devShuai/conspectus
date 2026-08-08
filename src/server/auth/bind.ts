@@ -22,8 +22,8 @@ export async function bindCertusToUser(input: {
   claims: Record<string, unknown>;
   config: AuthConfig;
 }): Promise<void> {
-  // Validate the OIDC claims the same way login does (iss/aud/nonce not
-  // needed here since this is a user-initiated bind, but sub+iss must exist).
+  // Callers must pass a subject that came from an ID Token this server
+  // obtained itself (see bind-flow.ts). Never accept one from client input.
   const sub = input.claims.sub;
   if (typeof sub !== "string" || !sub) {
     throw new BindError("invalid_input", "missing sub");
@@ -107,8 +107,3 @@ export async function setLocalPassword(
   throw new BindError("invalid_input", "cannot set local password without email");
 }
 
-export function certusSubFromClaimsForBind(
-  claims: Record<string, unknown>,
-): string {
-  return typeof claims.sub === "string" ? claims.sub : "";
-}

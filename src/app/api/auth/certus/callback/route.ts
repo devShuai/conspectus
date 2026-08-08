@@ -22,6 +22,9 @@ import {
   completeReauthFlow,
   ReauthFlowError,
 } from "@/server/auth/reauth-flow";
+import { completeBindFlow, BindFlowError } from "@/server/auth/bind-flow";
+import { BindError } from "@/server/auth/bind";
+import { peekOIDCTransaction } from "@/server/auth/transaction";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -62,6 +65,53 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         expiredTransactionCookieOptions(config),
       );
       response.cookies.set(REAUTH_COOKIE_NAME, "", expiredReauthCookieOptions(config));
+      return response;
+    }
+  }
+
+  // Bind branch. Dispatch on the purpose recorded server-side in the
+  // transaction, not on anything the browser supplies (#96): a login
+  // authorization must never be replayable as a bind, and vice versa.
+  if (peekOIDCTransaction(transactionHandle)?.purpose === "bind") {
+    const session = await dbSessionWriter.find(
+      request.cookies.get(SESSION_COOKIE_NAME)?.value,
+    );
+    const returnTo = request.cookies.get(RETURN_COOKIE_NAME)?.value;
+    const settled =
+      returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/me";
+    try {
+      if (!session) throw new BindFlowError("session_mismatch");
+      await completeBindFlow({
+        currentUrl: canonicalOIDCCallbackURL(config, request.nextUrl.searchParams),
+        oidcHandle: transactionHandle,
+        sessionUserId: session.userId,
+      });
+      const target = new URL(settled, config.appUrl);
+      target.searchParams.set("bind", "ok");
+      const response = NextResponse.redirect(target, 303);
+      response.headers.set("Cache-Control", "no-store");
+      response.cookies.set(
+        OIDC_TRANSACTION_COOKIE_NAME,
+        "",
+        expiredTransactionCookieOptions(config),
+      );
+      response.cookies.set(RETURN_COOKIE_NAME, "", expiredReturnCookieOptions(config));
+      return response;
+    } catch (error) {
+      const code =
+        error instanceof BindFlowError || error instanceof BindError
+          ? error.code
+          : "unexpected_error";
+      const target = new URL("/auth/error", config.appUrl);
+      target.searchParams.set("code", `bind_${code}`);
+      const response = NextResponse.redirect(target, 303);
+      response.headers.set("Cache-Control", "no-store");
+      response.cookies.set(
+        OIDC_TRANSACTION_COOKIE_NAME,
+        "",
+        expiredTransactionCookieOptions(config),
+      );
+      response.cookies.set(RETURN_COOKIE_NAME, "", expiredReturnCookieOptions(config));
       return response;
     }
   }

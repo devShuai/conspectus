@@ -1,13 +1,10 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { db } from "@/server/db";
 import { loadAuthConfig } from "@/server/auth/config";
 import { dbSessionWriter } from "@/server/auth/db-flow";
 import {
-  bindCertusToUser,
   BindError,
-  certusSubFromClaimsForBind,
   unbindCertusFromUser,
   unbindLocalPasswordFromUser,
 } from "@/server/auth/bind";
@@ -26,38 +23,25 @@ async function requireSession(request: NextRequest): Promise<{ userId: string } 
   return dbSessionWriter.find(request.cookies.get(SESSION_COOKIE_NAME)?.value);
 }
 
-/** Bind certus sub to current user (local user performs certus OIDC once). */
-export async function POST(request: NextRequest): Promise<NextResponse> {
-  if (!originOk(request)) {
-    return NextResponse.json({ ok: false, error: "invalid_origin" }, { status: 403 });
-  }
-  const session = await requireSession(request);
-  if (!session) {
-    return NextResponse.json({ ok: false, error: "unauthorized" }, { status: 401 });
-  }
-  const form = await request.formData();
-  const sub = String(form.get("sub") ?? "");
-  if (!sub) {
-    return NextResponse.json({ ok: false, error: "missing_sub" }, { status: 400 });
-  }
-  try {
-    await bindCertusToUser({
-      userId: session.userId,
-      claims: { sub },
-      config: loadAuthConfig(),
-    });
-    return NextResponse.json({ ok: true });
-  } catch (cause) {
-    if (cause instanceof BindError) {
-      const status =
-        cause.code === "last_auth_method" ? 409 : cause.code === "sub_in_use" ? 409 : 400;
-      return NextResponse.json(
-        { ok: false, error: { code: cause.code } },
-        { status },
-      );
-    }
-    throw cause;
-  }
+/**
+ * Binding certus is NOT a POST with a `sub`.
+ *
+ * The previous implementation wrote whatever subject the form carried straight
+ * into User.certusSub. `sub_in_use` only rejected subjects already taken, so a
+ * signed-in user could claim any certus account that had not logged in yet;
+ * when the real owner arrived, JIT attached them to the squatter's row (#96).
+ *
+ * Binding now runs a real certus authorization: GET /api/auth/bind/start, and
+ * the shared callback writes the `sub` from the resulting ID Token.
+ */
+export async function POST(): Promise<NextResponse> {
+  return NextResponse.json(
+    {
+      ok: false,
+      error: { code: "use_oidc_bind", start: "/api/auth/bind/start" },
+    },
+    { status: 405, headers: { allow: "DELETE, PATCH" } },
+  );
 }
 
 /** Unbind certus (keep local password). */
@@ -116,6 +100,3 @@ export async function PATCH(request: NextRequest): Promise<NextResponse> {
     throw cause;
   }
 }
-
-void db;
-void certusSubFromClaimsForBind;
