@@ -31,6 +31,9 @@ loadEnvFile();
  */
 export default defineConfig({
   test: {
+    // 远端共享测试库在满核并行下会瞬断（"Can't reach database server" 的间歇
+    // 失败来源）；限制 worker 数，用少量耗时换确定性
+    maxWorkers: 2,
     projects: [
       {
         resolve: {

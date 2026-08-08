@@ -4,7 +4,7 @@ import { postSafeWebhook } from "./webhook-safe";
 import { webhookHeaders } from "./webhook-signing";
 
 export const DIGEST_RETRY_MS = [60_000, 300_000, 1_800_000];
-const MAX_ATTEMPTS = DIGEST_RETRY_MS.length;
+const MAX_ATTEMPTS = DIGEST_RETRY_MS.length + 1; // 与 dispatch 同阶梯：三次重试后才 failed（#110 off-by-one）
 
 /**
  * Digest dispatcher: leases a due Digest batch, renders its still-valid
