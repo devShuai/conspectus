@@ -71,8 +71,9 @@ describe("annualizedCost", () => {
     expect(annualizedCost(30, "custom", 30)).toBeCloseTo(365, 5);
   });
 
-  it("amortizes lifetime over 3 years", () => {
+  it("amortizes lifetime over 3 years; one_time is not annualized (#105)", () => {
     expect(annualizedCost(3000, "lifetime")).toBeCloseTo(1000, 5);
+    expect(annualizedCost(3000, "one_time")).toBe(0);
   });
 });
 

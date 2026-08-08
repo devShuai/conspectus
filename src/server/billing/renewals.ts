@@ -49,11 +49,14 @@ export async function runRenewals(now: Date = new Date()): Promise<{
     },
     billedAt: Date,
   ): Promise<boolean> {
-    const periodEnd =
-      nextBillingDate(billedAt, sub.billingCycle as never, {
-        anchorDay: sub.anchorDay,
-        cycleDays: sub.cycleDays,
-      }) ?? billedAt;
+    // one_time/lifetime 的 period 与 next 均为空（§7.2 / #105）
+    const recurring = sub.billingCycle !== "lifetime" && sub.billingCycle !== "one_time";
+    const periodEnd = recurring
+      ? (nextBillingDate(billedAt, sub.billingCycle as never, {
+          anchorDay: sub.anchorDay,
+          cycleDays: sub.cycleDays,
+        }) ?? billedAt)
+      : null;
     const created = await tx.billingRecord.createMany({
       data: [
         {
@@ -63,7 +66,7 @@ export async function runRenewals(now: Date = new Date()): Promise<{
           currency: sub.currency,
           recordType: "charge",
           billedAt,
-          periodStart: billedAt,
+          periodStart: recurring ? billedAt : null,
           periodEnd,
           status: "pending",
           source: "system",

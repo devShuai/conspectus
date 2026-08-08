@@ -6,7 +6,9 @@ export interface DashboardStats {
   baseCurrency: string;
   monthNetSpend: number;
   annualized: number;
+  annualizedUncovered: boolean;
   pendingEstimate: number;
+  pendingUncovered: boolean;
   missingProjections: number;
   incomplete: boolean;
   trialCount: number;
@@ -56,37 +58,56 @@ export async function dashboardStats(userId: string): Promise<DashboardStats> {
   const missingProjections = await countMissingProjections(userId, baseCurrency);
   const incomplete = missingProjections > 0;
 
-  // annualized from subscriptions (trial + active only)
+  // annualized from subscriptions (trial + active only)，按最新可用汇率折到本位币
+  // （此前跨币种裸加后按 baseCurrency 显示，#105；one_time 不计入，§7.2 无年化口径）
   const subs = await db.subscription.findMany({
     where: { userId, status: { in: ["trial", "active"] } },
   });
+
+  // pending estimate：设计 §7.3「未来预估支出用当日最新汇率实时算」——
+  // pending 按设计不生成投影，逐条用最新汇率折算（此前读不存在的投影，恒为 0）
+  const pending = await db.billingRecord.findMany({
+    where: { userId, status: "pending" },
+    select: { amount: true, currency: true, recordType: true },
+  });
+
+  const resolveRate = await latestRateResolver(baseCurrency, [
+    ...new Set([...subs.map((s) => s.currency), ...pending.map((r) => r.currency)]),
+  ]);
+
   let annualized = 0;
+  let annualizedUncovered = false;
   let trialCount = 0;
   let activeCount = 0;
   for (const sub of subs) {
-    const cycle = sub.billingCycle;
-    annualized += annualizedCost(Number(sub.price), cycle, sub.cycleDays);
+    const rate = resolveRate(sub.currency);
+    if (rate === null) {
+      annualizedUncovered = true;
+      continue;
+    }
+    annualized += annualizedCost(Number(sub.price), sub.billingCycle, sub.cycleDays) * rate;
     if (sub.status === "trial") trialCount++;
     else activeCount++;
   }
 
-  // pending estimate (future, today's rate implicit — flagged as estimate)
-  const pending = await db.billingRecord.findMany({
-    where: { userId, status: "pending" },
-    include: { conversions: { where: { baseCurrency } } },
-  });
   let pendingEstimate = 0;
+  let pendingUncovered = false;
   for (const record of pending) {
-    const conversion = record.conversions[0];
-    if (!conversion) continue;
-    pendingEstimate += Number(conversion.signedAmountInBase);
+    const rate = resolveRate(record.currency);
+    if (rate === null) {
+      pendingUncovered = true;
+      continue;
+    }
+    pendingEstimate += Number(record.amount) * rate * (record.recordType === "refund" ? -1 : 1);
   }
 
   return {
     baseCurrency,
     monthNetSpend: monthNet,
     annualized,
+    annualizedUncovered,
     pendingEstimate,
+    pendingUncovered,
     missingProjections,
     incomplete,
     trialCount,

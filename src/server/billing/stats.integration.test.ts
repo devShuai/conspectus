@@ -348,4 +348,69 @@ describe.skipIf(DISABLED)("dashboard stats", () => {
     await db.vendor.deleteMany({ where: { id: vendor.id } });
     await db.user.delete({ where: { id: user.id } });
   });
+
+  it("annualized converts to base currency; pending is estimated with the latest rate (#105)", async () => {
+    const user = await setupUser();
+    await db.subscription.create({
+      data: {
+        userId: user.id,
+        name: "USD Sub",
+        price: 10,
+        currency: "USD",
+        billingCycle: "monthly",
+        startedAt: new Date("2026-01-01T00:00:00Z"),
+        status: "active",
+      },
+    });
+    const sub2 = await db.subscription.create({
+      data: {
+        userId: user.id,
+        name: "OneTime",
+        price: 999,
+        currency: "CNY",
+        billingCycle: "one_time",
+        startedAt: new Date("2026-01-01T00:00:00Z"),
+        status: "active",
+      },
+    });
+    await db.billingRecord.create({
+      data: {
+        userId: user.id,
+        subscriptionId: sub2.id,
+        amount: 10,
+        currency: "USD",
+        recordType: "charge",
+        billedAt: new Date(),
+        status: "pending",
+        source: "system",
+      },
+    });
+    const rateDate = new Date();
+    await db.exchangeRate.upsert({
+      where: { date_base_quote: { date: rateDate, base: "USD", quote: "CNY" } },
+      create: { date: rateDate, base: "USD", quote: "CNY", rate: 7.2 },
+      update: { rate: 7.2 },
+    });
+
+    const stats = await dashboardStats(user.id);
+    // 年化：10 USD×12×7.2=864；one_time 不计入年化（§7.2 无口径，#105）
+    expect(stats.annualized).toBe(864);
+    expect(stats.annualizedUncovered).toBe(false);
+    // pending：10 USD×7.2=72（此前恒 0，因为 pending 不投影）
+    expect(stats.pendingEstimate).toBeCloseTo(72, 6);
+    expect(stats.pendingUncovered).toBe(false);
+
+    await db.exchangeRate.deleteMany({ where: { base: "USD", quote: "CNY" } });
+
+    // 无汇率：标记 uncovered，绝不静默当 0
+    const statsNoRate = await dashboardStats(user.id);
+    expect(statsNoRate.annualizedUncovered).toBe(true);
+    expect(statsNoRate.annualized).toBe(0);
+    expect(statsNoRate.pendingUncovered).toBe(true);
+    expect(statsNoRate.pendingEstimate).toBe(0);
+
+    await db.billingRecord.deleteMany({ where: { userId: user.id } });
+    await db.subscription.deleteMany({ where: { userId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
 });

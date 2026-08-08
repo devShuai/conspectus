@@ -141,9 +141,11 @@ export function annualizedCost(
       return price * (365 / days);
     }
     case "lifetime":
-    case "one_time":
-      // UI marks lifetime/one-time as estimate; amortize over 3 years default.
+      // UI marks lifetime as estimate; amortize over 3 years default.
       return price / 3;
+    case "one_time":
+      // §7.2 无年化口径：一次性付款不折算（此前误按 lifetime 摊销，#105）
+      return 0;
   }
 }
 

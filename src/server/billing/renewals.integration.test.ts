@@ -255,4 +255,38 @@ describe.skipIf(DISABLED)("renewals regressions (#63, #65)", () => {
     });
     expect(charge).not.toBeNull();
   });
+
+  it("trial one_time → first pending with empty period and nextBillingAt=null (#105)", async () => {
+    const user = await setupUser();
+    const sub = await db.subscription.create({
+      data: {
+        userId: user.id,
+        name: "TrialOneTime",
+        price: 300,
+        currency: "CNY",
+        billingCycle: "one_time",
+        startedAt: new Date("2025-12-01T00:00:00Z"),
+        trialEndsAt: new Date("2026-01-10T00:00:00Z"),
+        status: "trial",
+        autoRenew: true,
+      },
+    });
+
+    await runRenewals(new Date("2026-01-12T00:00:00Z"));
+    const updated = await db.subscription.findUniqueOrThrow({ where: { id: sub.id } });
+    expect(updated.status).toBe("active");
+    // one_time 的 period 与 next 均为空（§7.2）
+    expect(updated.nextBillingAt).toBeNull();
+
+    const pending = await db.billingRecord.findFirstOrThrow({
+      where: { subscriptionId: sub.id, status: "pending" },
+    });
+    expect(pending.billedAt).toEqual(new Date("2026-01-10T00:00:00Z"));
+    expect(pending.periodStart).toBeNull();
+    expect(pending.periodEnd).toBeNull();
+
+    await db.billingRecord.deleteMany({ where: { subscriptionId: sub.id } });
+    await db.subscription.deleteMany({ where: { userId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
 });
