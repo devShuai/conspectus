@@ -49,8 +49,18 @@ export default async function UsagePage() {
                   : `${quota.usedValue} / ${quota.limitValue ?? "∞"} ${quota.unit}`}
               </div>
               {pct !== null && (
-                <div className="usage-bar">
-                  <div className="usage-fill" style={{ width: `${Math.min(pct, 100)}%` }} />
+                <div
+                  className="usage-bar"
+                  role="progressbar"
+                  aria-valuenow={pct}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-label={`${quota.metric} 已用 ${pct}%`}
+                >
+                  <div
+                    className={`usage-fill${pct >= 80 ? " warn" : ""}`}
+                    style={{ width: `${Math.min(pct, 100)}%` }}
+                  />
                 </div>
               )}
               <div className="usage-meta">

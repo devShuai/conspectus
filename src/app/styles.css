@@ -59,6 +59,20 @@ h1 {
   letter-spacing: -0.04em;
 }
 
+/* 排版基线（#76）：preflight 清掉了默认间距，h2 与正文段落重新立节奏 */
+h2 {
+  margin: 2rem 0 0.75rem;
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+main > p,
+main > .muted,
+main > .summary {
+  margin: 0 0 1rem;
+}
+
 .eyebrow {
   margin-top: 36px;
   color: var(--brand-accent);
@@ -214,6 +228,21 @@ code {
 
 .usage-bar {
   margin-top: 10px;
+  height: 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  overflow: hidden;
+}
+
+.usage-fill {
+  height: 100%;
+  border-radius: inherit;
+  background: var(--brand-accent);
+  transition: width 0.25s ease-out;
+}
+
+.usage-fill.warn {
+  background: color-mix(in srgb, var(--brand-accent) 55%, var(--brand-ink));
 }
 
 .app-layout {
