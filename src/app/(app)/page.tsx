@@ -5,6 +5,8 @@ import { currentAppSession } from "@/server/auth/current-session";
 import { formatMoney } from "@/components/money";
 import { listSubscriptions } from "@/server/billing/subscriptions";
 import { dashboardStats } from "@/server/billing/stats";
+import { db } from "@/server/db";
+import { idleCandidates } from "@/server/usage/manual";
 
 export const dynamic = "force-dynamic";
 
@@ -12,10 +14,34 @@ export default async function DashboardPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
 
-  const [subs, stats] = await Promise.all([
+  const [subs, stats, idle] = await Promise.all([
     listSubscriptions(session.userId),
     dashboardStats(session.userId),
+    idleCandidates(session.userId),
   ]);
+
+  // 闲置识别（design §7.4）：连续 3 周期利用率 <10% 的 quota 映射回订阅，
+  // 给出取消建议与 cancelUrl 直达链接
+  const idleQuotas = await db.usageQuota.findMany({
+    where: { id: { in: idle.map((c) => c.quotaId) } },
+    include: {
+      subscription: {
+        select: {
+          name: true,
+          status: true,
+          vendor: { select: { cancelUrl: true } },
+        },
+      },
+    },
+  });
+  const idleRows = idleQuotas
+    .filter((q) => q.subscription.status === "active" || q.subscription.status === "trial")
+    .map((q) => ({
+      subscriptionName: q.subscription.name,
+      metric: q.metric,
+      cancelUrl: q.subscription.vendor?.cancelUrl ?? null,
+      recentUtilization: idle.find((c) => c.quotaId === q.id)?.recentUtilization ?? 0,
+    }));
 
   return (
     <main className="shell">
@@ -51,6 +77,40 @@ export default async function DashboardPage() {
       <p className="field-hint">
         <Link href="/analytics">查看近 12 个月趋势与分类占比 →</Link>
       </p>
+
+      {idleRows.length > 0 && (
+        <>
+          <h2>可能浪费</h2>
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>订阅</th>
+                <th>额度</th>
+                <th>近 3 周期利用率</th>
+                <th>建议</th>
+              </tr>
+            </thead>
+            <tbody>
+              {idleRows.map((row) => (
+                <tr key={`${row.subscriptionName}-${row.metric}`}>
+                  <td>{row.subscriptionName}</td>
+                  <td>{row.metric}</td>
+                  <td>{(row.recentUtilization * 100).toFixed(1)}%</td>
+                  <td>
+                    {row.cancelUrl ? (
+                      <a href={row.cancelUrl} target="_blank" rel="noreferrer">
+                        去官网取消 →
+                      </a>
+                    ) : (
+                      <span className="muted">连续低用量，考虑退订</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
+      )}
 
       <h2>订阅列表</h2>
       <table className="data-table">

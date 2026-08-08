@@ -1,4 +1,5 @@
 import { db } from "@/server/db";
+import { PROJECTION_WINDOW, projectBalanceDaysLeft } from "@/server/usage/insights";
 
 import { clearArm, emitArmedEvent, emitEvent } from "./scan";
 
@@ -157,23 +158,22 @@ async function evaluateBalanceLow(
   }
 }
 
-/** 由最近两条快照估算剩余可用天数；数据不足返回 null（#118 再做完整线性外推）。 */
+/** 由最近快照线性外推剩余可用天数（design §7.4 / #118）；速率不可得返回 null。 */
 async function estimateDaysLeft(
   quota: { id: string; remainingValue: unknown },
   now: Date,
 ): Promise<number | null> {
   const snapshots = await db.usageSnapshot.findMany({
-    where: { quotaId: quota.id },
+    where: { quotaId: quota.id, capturedAt: { lte: now } },
     orderBy: { capturedAt: "desc" },
-    take: 2,
+    take: PROJECTION_WINDOW,
   });
-  if (snapshots.length < 2) return null;
-  const [latest, previous] = snapshots;
-  const burn = Number(previous.value) - Number(latest.value); // balance 递减为正
-  const hours = (latest.capturedAt.getTime() - previous.capturedAt.getTime()) / 3_600_000;
-  if (burn <= 0 || hours <= 0) return null;
-  const remaining = Number(latest.value);
-  return remaining / (burn / hours) / 24;
+  const remaining = Number(quota.remainingValue ?? NaN);
+  if (!Number.isFinite(remaining)) return null;
+  return projectBalanceDaysLeft(
+    snapshots.map((s) => ({ capturedAt: s.capturedAt, value: Number(s.value) })),
+    { remaining },
+  );
 }
 
 /** connection_failed 求值入口（§7.6 / #114）：连接转入 auth_failed / degraded 时 armed。 */
