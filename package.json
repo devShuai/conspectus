@@ -18,7 +18,6 @@
     "db:deploy": "prisma migrate deploy",
     "db:studio": "prisma studio",
     "m0:device-introspect": "tsx scripts/m0-device-introspection.ts",
-    "m0:capabilities-status": "tsx scripts/m0-capabilities-status.ts",
     "admin:create-user": "tsx scripts/admin-create-user.ts"
   },
   "dependencies": {

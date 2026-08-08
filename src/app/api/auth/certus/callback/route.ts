@@ -3,9 +3,11 @@ import { NextResponse } from "next/server";
 
 import {
   expiredReauthCookieOptions,
+  expiredReturnCookieOptions,
   expiredTransactionCookieOptions,
   OIDC_TRANSACTION_COOKIE_NAME,
   REAUTH_COOKIE_NAME,
+  RETURN_COOKIE_NAME,
   SESSION_COOKIE_NAME,
   sessionCookieOptions,
 } from "@/server/auth/cookies";
@@ -70,7 +72,11 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       transactionHandle,
       { config, sessions: dbSessionWriter },
     );
-    const response = NextResponse.redirect(new URL("/me", config.appUrl), 303);
+    // 回到原始目标页（§7.1），默认总览；Cookie 值在 start 时已过滤为站内路径
+    const returnTo = request.cookies.get(RETURN_COOKIE_NAME)?.value;
+    const target =
+      returnTo && returnTo.startsWith("/") && !returnTo.startsWith("//") ? returnTo : "/";
+    const response = NextResponse.redirect(new URL(target, config.appUrl), 303);
     response.headers.set("Cache-Control", "no-store");
     response.cookies.set(
       SESSION_COOKIE_NAME,
@@ -82,6 +88,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       "",
       expiredTransactionCookieOptions(config),
     );
+    response.cookies.set(RETURN_COOKIE_NAME, "", expiredReturnCookieOptions(config));
     return response;
   } catch (error) {
     const code = error instanceof OIDCFlowError ? error.code : "unexpected_error";

@@ -1,9 +1,5 @@
 import { timingSafeEqual } from "node:crypto";
 
-import {
-  storeClaimEvidenceForSession,
-  summarizeIdTokenClaims,
-} from "./claim-evidence";
 import { localUserIdFromClaims, type OIDCClaims } from "./claims";
 import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
@@ -160,11 +156,6 @@ export async function completeOIDCLogin(
     now: options.now !== undefined ? new Date(options.now) : undefined,
   });
 
-  // M0: keep redacted claim evidence in process memory for contract probes.
-  storeClaimEvidenceForSession(
-    session.sessionToken,
-    summarizeIdTokenClaims(tokens.claims),
-  );
   return session;
 }
 

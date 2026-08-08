@@ -49,7 +49,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
         { status: 401 },
       );
     }
-    const response = NextResponse.redirect(new URL("/me", config.appUrl), 303);
+    const response = NextResponse.redirect(new URL("/", config.appUrl), 303);
     response.headers.set("Cache-Control", "no-store");
     response.cookies.set(
       SESSION_COOKIE_NAME,

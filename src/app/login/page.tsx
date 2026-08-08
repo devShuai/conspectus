@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 
 import { currentAppSession } from "@/server/auth/current-session";
 
@@ -6,6 +7,7 @@ export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
   const session = await currentAppSession();
+  if (session) redirect("/");
 
   return (
     <main className="shell">
@@ -15,24 +17,11 @@ export default async function LoginPage() {
       <p className="summary">
         管理缴费时间、到期日与用量——音乐、视频、AI Coding 计划，一处总览。
       </p>
-      {session ? (
-        <div className="actions">
-          <Link className="button" href="/">
-            进入总览
-          </Link>
-          <form action="/api/auth/logout" method="post">
-            <button className="button secondary" type="submit">
-              注销
-            </button>
-          </form>
-        </div>
-      ) : (
-        <div className="actions">
-          <a className="button" href="/api/auth/certus/start">
-            使用 certus 登录
-          </a>
-        </div>
-      )}
+      <div className="actions">
+        <Link className="button" href="/api/auth/certus/start">
+          使用 certus 登录
+        </Link>
+      </div>
     </main>
   );
 }
