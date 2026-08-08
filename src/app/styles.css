@@ -181,6 +181,17 @@ code {
   opacity: 0.6;
 }
 
+/* 横向滚动容器（#77 / design.md §7.9）：宽表格在窄屏容器内滚动，
+   不再溢出撑破 shell；min-width 保住列的可读宽度 */
+.table-wrap {
+  max-width: 100%;
+  overflow-x: auto;
+}
+
+.table-wrap .data-table {
+  min-width: 560px;
+}
+
 .tag {
   display: inline-block;
   padding: 2px 8px;

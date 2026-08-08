@@ -81,69 +81,73 @@ export default async function DashboardPage() {
       {idleRows.length > 0 && (
         <>
           <h2>可能浪费</h2>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>订阅</th>
-                <th>额度</th>
-                <th>近 3 周期利用率</th>
-                <th>建议</th>
-              </tr>
-            </thead>
-            <tbody>
-              {idleRows.map((row) => (
-                <tr key={`${row.subscriptionName}-${row.metric}`}>
-                  <td>{row.subscriptionName}</td>
-                  <td>{row.metric}</td>
-                  <td>{(row.recentUtilization * 100).toFixed(1)}%</td>
-                  <td>
-                    {row.cancelUrl ? (
-                      <a href={row.cancelUrl} target="_blank" rel="noreferrer">
-                        去官网取消 →
-                      </a>
-                    ) : (
-                      <span className="muted">连续低用量，考虑退订</span>
-                    )}
-                  </td>
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>订阅</th>
+                  <th>额度</th>
+                  <th>近 3 周期利用率</th>
+                  <th>建议</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {idleRows.map((row) => (
+                  <tr key={`${row.subscriptionName}-${row.metric}`}>
+                    <td>{row.subscriptionName}</td>
+                    <td>{row.metric}</td>
+                    <td>{(row.recentUtilization * 100).toFixed(1)}%</td>
+                    <td>
+                      {row.cancelUrl ? (
+                        <a href={row.cancelUrl} target="_blank" rel="noreferrer">
+                          去官网取消 →
+                        </a>
+                      ) : (
+                        <span className="muted">连续低用量，考虑退订</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </>
       )}
 
       <h2>订阅列表</h2>
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>名称</th>
-            <th>状态</th>
-            <th>价格</th>
-            <th>周期</th>
-            <th>下次缴费</th>
-          </tr>
-        </thead>
-        <tbody>
-          {subs.map((sub) => (
-            <tr key={sub.id}>
-              <td>{sub.name}</td>
-              <td>
-                <span className="tag">{sub.status}</span>
-                {sub.status === "trial" && <span className="tag warn">试用中</span>}
-              </td>
-              <td>
-                {sub.currency} {sub.price.toString()}
-              </td>
-              <td>{sub.billingCycle}</td>
-              <td>
-                {sub.nextBillingAt
-                  ? sub.nextBillingAt.toISOString().slice(0, 10)
-                  : "—"}
-              </td>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>名称</th>
+              <th>状态</th>
+              <th>价格</th>
+              <th>周期</th>
+              <th>下次缴费</th>
             </tr>
-          ))}
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            {subs.map((sub) => (
+              <tr key={sub.id}>
+                <td>{sub.name}</td>
+                <td>
+                  <span className="tag">{sub.status}</span>
+                  {sub.status === "trial" && <span className="tag warn">试用中</span>}
+                </td>
+                <td>
+                  {sub.currency} {sub.price.toString()}
+                </td>
+                <td>{sub.billingCycle}</td>
+                <td>
+                  {sub.nextBillingAt
+                    ? sub.nextBillingAt.toISOString().slice(0, 10)
+                    : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
       {subs.length === 0 && <p className="muted">暂无订阅，等待录入。</p>}
     </main>
   );

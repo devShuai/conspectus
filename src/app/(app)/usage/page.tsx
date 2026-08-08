@@ -133,25 +133,27 @@ export default async function UsagePage() {
       </div>
 
       <h2>服务商连接</h2>
-      <table className="data-table">
-        <thead>
-          <tr><th>服务商</th><th>状态</th><th>上次同步</th><th>下次同步</th><th>错误</th></tr>
-        </thead>
-        <tbody>
-          {connections.map((conn) => (
-            <tr key={conn.id}>
-              <td>{conn.displayName}</td>
-              <td><span className="tag">{conn.status}</span></td>
-              <td>{conn.lastSyncAt?.toISOString() ?? "—"}</td>
-              <td>{conn.nextSyncAt?.toISOString() ?? "—"}</td>
-              <td>{conn.lastError ?? "—"}</td>
-            </tr>
-          ))}
-          {connections.length === 0 && (
-            <tr><td colSpan={5} className="muted">未连接任何服务商</td></tr>
-          )}
-        </tbody>
-      </table>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr><th>服务商</th><th>状态</th><th>上次同步</th><th>下次同步</th><th>错误</th></tr>
+          </thead>
+          <tbody>
+            {connections.map((conn) => (
+              <tr key={conn.id}>
+                <td>{conn.displayName}</td>
+                <td><span className="tag">{conn.status}</span></td>
+                <td>{conn.lastSyncAt?.toISOString() ?? "—"}</td>
+                <td>{conn.nextSyncAt?.toISOString() ?? "—"}</td>
+                <td>{conn.lastError ?? "—"}</td>
+              </tr>
+            ))}
+            {connections.length === 0 && (
+              <tr><td colSpan={5} className="muted">未连接任何服务商</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
     </main>
   );
 }

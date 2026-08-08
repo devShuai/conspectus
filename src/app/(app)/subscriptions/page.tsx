@@ -68,45 +68,47 @@ export default async function SubscriptionsPage() {
           还没有订阅。点「新建订阅」录入第一条 —— 填好周期与首次计费日后，系统会自动算出下次续费日。
         </p>
       ) : (
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th>价格</th>
-              <th>周期</th>
-              <th>下次续费</th>
-              <th>状态</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.map((sub) => (
-              <tr key={sub.id}>
-                <td>
-                  <Link href={`/subscriptions/${sub.id}`}>{sub.name}</Link>
-                  {sub.vendorId && vendorName.has(sub.vendorId) && (
-                    <span className="muted"> · {vendorName.get(sub.vendorId)}</span>
-                  )}
-                  {sub.planName && <span className="muted"> · {sub.planName}</span>}
-                </td>
-                <td>{formatMoney(Number(sub.price), sub.currency)}</td>
-                <td>
-                  {CYCLE_LABEL[sub.billingCycle] ?? sub.billingCycle}
-                  {sub.billingCycle === "custom" && sub.cycleDays
-                    ? ` ${sub.cycleDays} 天`
-                    : ""}
-                </td>
-                <td>{formatDate(sub.nextBillingAt)}</td>
-                <td>
-                  <span className="tag">{STATUS_LABEL[sub.status] ?? sub.status}</span>
-                  {sub.status === "trial" && (
-                    <span className="muted"> · 按转正价格估算</span>
-                  )}
-                  {!sub.autoRenew && <span className="muted"> · 不续费</span>}
-                </td>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>价格</th>
+                <th>周期</th>
+                <th>下次续费</th>
+                <th>状态</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {sorted.map((sub) => (
+                <tr key={sub.id}>
+                  <td>
+                    <Link href={`/subscriptions/${sub.id}`}>{sub.name}</Link>
+                    {sub.vendorId && vendorName.has(sub.vendorId) && (
+                      <span className="muted"> · {vendorName.get(sub.vendorId)}</span>
+                    )}
+                    {sub.planName && <span className="muted"> · {sub.planName}</span>}
+                  </td>
+                  <td>{formatMoney(Number(sub.price), sub.currency)}</td>
+                  <td>
+                    {CYCLE_LABEL[sub.billingCycle] ?? sub.billingCycle}
+                    {sub.billingCycle === "custom" && sub.cycleDays
+                      ? ` ${sub.cycleDays} 天`
+                      : ""}
+                  </td>
+                  <td>{formatDate(sub.nextBillingAt)}</td>
+                  <td>
+                    <span className="tag">{STATUS_LABEL[sub.status] ?? sub.status}</span>
+                    {sub.status === "trial" && (
+                      <span className="muted"> · 按转正价格估算</span>
+                    )}
+                    {!sub.autoRenew && <span className="muted"> · 不续费</span>}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </main>
   );
