@@ -149,7 +149,7 @@ export default async function UsagePage() {
       <div className="table-wrap">
         <table className="data-table">
           <thead>
-            <tr><th>服务商</th><th>状态</th><th>上次同步</th><th>下次同步</th><th>错误</th></tr>
+            <tr><th scope="col">服务商</th><th scope="col">状态</th><th scope="col">上次同步</th><th scope="col">下次同步</th><th scope="col">错误</th></tr>
           </thead>
           <tbody>
             {connections.map((conn) => (

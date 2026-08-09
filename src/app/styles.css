@@ -120,6 +120,14 @@ main > .summary {
   color: inherit;
 }
 
+/* 全局焦点环（#82）：表单输入之外的链接、按钮、可点卡片也给出可见焦点指示 */
+a:focus-visible,
+button:focus-visible,
+[role="button"]:focus-visible {
+  outline: 2px solid var(--brand-accent);
+  outline-offset: 2px;
+}
+
 code {
   overflow-wrap: anywhere;
 }
@@ -301,6 +309,13 @@ a.stat-card {
 
 .app-nav-item:active {
   opacity: 1;
+}
+
+/* 当前页高亮（#82）：配合 aria-current="page"，视觉上也能看出身在何处 */
+.app-nav-item[aria-current="page"] {
+  opacity: 1;
+  color: var(--brand-accent);
+  box-shadow: inset 0 -2px 0 var(--brand-accent);
 }
 
 @media (min-width: 768px) {

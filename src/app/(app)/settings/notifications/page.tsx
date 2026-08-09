@@ -42,7 +42,7 @@ export default async function NotificationsSettingsPage() {
       <div className="table-wrap">
         <table className="data-table">
           <thead>
-            <tr><th>类型</th><th>配置</th><th>状态</th></tr>
+            <tr><th scope="col">类型</th><th scope="col">配置</th><th scope="col">状态</th></tr>
           </thead>
           <tbody>
             {rules.map((rule) => (
@@ -69,7 +69,7 @@ export default async function NotificationsSettingsPage() {
       <div className="table-wrap">
         <table className="data-table">
           <thead>
-            <tr><th>类型</th><th>模式</th><th>目标</th><th>状态</th></tr>
+            <tr><th scope="col">类型</th><th scope="col">模式</th><th scope="col">目标</th><th scope="col">状态</th></tr>
           </thead>
           <tbody>
             {channels.map((channel) => (

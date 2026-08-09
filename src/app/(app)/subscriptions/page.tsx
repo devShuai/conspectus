@@ -75,11 +75,11 @@ export default async function SubscriptionsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>名称</th>
-                <th>价格</th>
-                <th>周期</th>
-                <th>下次续费</th>
-                <th>状态</th>
+                <th scope="col">名称</th>
+                <th scope="col">价格</th>
+                <th scope="col">周期</th>
+                <th scope="col">下次续费</th>
+                <th scope="col">状态</th>
               </tr>
             </thead>
             <tbody>

@@ -49,7 +49,7 @@ export function TimezoneForm({
         <button className="button" type="submit" disabled={pending}>
           {pending ? "保存中…" : "保存时区"}
         </button>
-        {state?.ok && <span className="tag">已保存</span>}
+        {state?.ok && <span className="tag" role="status">已保存</span>}
       </div>
     </form>
   );
@@ -83,7 +83,7 @@ export function RebaseForm({
         <button className="button" type="submit" disabled={pending || disabled}>
           {pending ? "提交中…" : "变更本位币"}
         </button>
-        {state?.ok && <span className="tag">已提交</span>}
+        {state?.ok && <span className="tag" role="status">已提交</span>}
       </div>
     </form>
   );

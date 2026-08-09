@@ -40,7 +40,7 @@ export default async function MePage({
         <table className="data-table">
           <tbody>
             <tr>
-              <th>邮箱</th>
+              <th scope="row">邮箱</th>
               <td>
                 {user.email ?? "—"}{" "}
                 {user.emailVerifiedAt ? (
@@ -51,19 +51,19 @@ export default async function MePage({
               </td>
             </tr>
             <tr>
-              <th>本位币</th>
+              <th scope="row">本位币</th>
               <td>{user.baseCurrency}</td>
             </tr>
             <tr>
-              <th>时区</th>
+              <th scope="row">时区</th>
               <td>{user.timezone}</td>
             </tr>
             <tr>
-              <th>注册时间</th>
+              <th scope="row">注册时间</th>
               <td>{user.createdAt.toISOString().slice(0, 10)}</td>
             </tr>
             <tr>
-              <th>最近登录</th>
+              <th scope="row">最近登录</th>
               <td>{user.lastLoginAt ? formatDateTime(user.lastLoginAt, user.timezone) : "—"}</td>
             </tr>
           </tbody>

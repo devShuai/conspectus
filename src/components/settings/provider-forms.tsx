@@ -105,7 +105,7 @@ export function ConnectProviderForm({
         <button className="button" type="submit" disabled={pending}>
           {pending ? "保存中…" : "添加连接"}
         </button>
-        {state?.ok && <span className="tag">已添加</span>}
+        {state?.ok && <span className="tag" role="status">已添加</span>}
       </div>
     </form>
   );

@@ -1,4 +1,7 @@
+"use client";
+
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 const NAV = [
   { href: "/", label: "总览" },
@@ -10,14 +13,24 @@ const NAV = [
 
 /** Mobile bottom tab bar + desktop top nav (PWA, design §7.9). */
 export default function AppNav() {
+  const pathname = usePathname();
   return (
     <nav className="app-nav" aria-label="主导航">
       <div className="app-nav-inner">
-        {NAV.map((item) => (
-          <Link key={item.href} href={item.href} className="app-nav-item">
-            {item.label}
-          </Link>
-        ))}
+        {NAV.map((item) => {
+          const current =
+            item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              className="app-nav-item"
+              aria-current={current ? "page" : undefined}
+            >
+              {item.label}
+            </Link>
+          );
+        })}
       </div>
     </nav>
   );

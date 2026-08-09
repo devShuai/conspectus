@@ -49,7 +49,7 @@ export default function ExportPanel({
             <a className="button" href={exportHref}>
               下载 CSV
             </a>
-            <span className="tag">已重新认证（5 分钟内有效）</span>
+            <span className="tag" role="status">已重新认证（5 分钟内有效）</span>
           </>
         ) : (
           <a className="button" href={reauthHref}>

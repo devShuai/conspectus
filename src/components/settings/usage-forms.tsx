@@ -91,7 +91,7 @@ export function ManualQuotaForm({
         <button className="button" type="submit" disabled={pending}>
           {pending ? "创建中…" : "创建额度"}
         </button>
-        {state?.ok && <span className="tag">已创建</span>}
+        {state?.ok && <span className="tag" role="status">已创建</span>}
       </div>
     </form>
   );
@@ -141,7 +141,7 @@ export function LocalBindingForm({
           <button className="button secondary" type="submit" disabled={pending}>
             {pending ? "绑定中…" : "绑定采集器"}
           </button>
-          {state?.ok && <span className="tag">已绑定</span>}
+          {state?.ok && <span className="tag" role="status">已绑定</span>}
         </div>
       </div>
     </form>
@@ -176,7 +176,7 @@ export function ManualUsageUpdateForm({
           <button className="button secondary" type="submit" disabled={pending}>
             {pending ? "保存中…" : "更新读数"}
           </button>
-          {state?.ok && <span className="tag">已更新</span>}
+          {state?.ok && <span className="tag" role="status">已更新</span>}
         </div>
       </div>
     </form>

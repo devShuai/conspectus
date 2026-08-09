@@ -46,7 +46,7 @@ export default async function DevicesSettingsPage() {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>名称</th><th>平台</th><th>版本</th><th>最近上报</th><th>状态</th><th></th></tr>
+              <tr><th scope="col">名称</th><th scope="col">平台</th><th scope="col">版本</th><th scope="col">最近上报</th><th scope="col">状态</th><th></th></tr>
             </thead>
             <tbody>
               {devices.map((device) => {

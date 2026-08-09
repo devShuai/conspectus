@@ -106,10 +106,10 @@ export default async function DashboardPage() {
             <table className="data-table">
               <thead>
                 <tr>
-                  <th>订阅</th>
-                  <th>额度</th>
-                  <th>近 3 周期利用率</th>
-                  <th>建议</th>
+                  <th scope="col">订阅</th>
+                  <th scope="col">额度</th>
+                  <th scope="col">近 3 周期利用率</th>
+                  <th scope="col">建议</th>
                 </tr>
               </thead>
               <tbody>
@@ -147,11 +147,11 @@ export default async function DashboardPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>名称</th>
-                <th>状态</th>
-                <th>价格</th>
-                <th>周期</th>
-                <th>下次缴费</th>
+                <th scope="col">名称</th>
+                <th scope="col">状态</th>
+                <th scope="col">价格</th>
+                <th scope="col">周期</th>
+                <th scope="col">下次缴费</th>
               </tr>
             </thead>
             <tbody>

@@ -27,7 +27,10 @@ export default async function LoginPage({
 
   return (
     <main className="shell">
-      <img src="/logo.svg" alt="conspectus" width="260" height="64" />
+      <picture>
+        <source srcSet="/logo-dark.svg" media="(prefers-color-scheme: dark)" />
+        <img src="/logo.svg" alt="conspectus" width="260" height="64" />
+      </picture>
       <p className="eyebrow">订阅资产管理中心</p>
       <h1>一览你的所有订阅</h1>
       <p className="summary">

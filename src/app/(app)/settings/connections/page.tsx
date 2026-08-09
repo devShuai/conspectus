@@ -62,7 +62,7 @@ export default async function ConnectionsPage() {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>服务商</th><th>显示名</th><th>状态</th><th>最近同步</th><th></th></tr>
+              <tr><th scope="col">服务商</th><th scope="col">显示名</th><th scope="col">状态</th><th scope="col">最近同步</th><th></th></tr>
             </thead>
             <tbody>
               {connections.map((conn) => (
