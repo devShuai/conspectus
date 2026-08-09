@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { backfillMissingProjections, collectFxPairs, countMissingProjections } from "./fx";
+import {
+  backfillMissingProjections,
+  collectFxPairs,
+  countMissingProjections,
+  markLatestFxStale,
+  saveFxRate,
+} from "./fx";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 
@@ -104,5 +110,33 @@ describe.skipIf(DISABLED)("fx backfill", () => {
     await db.subscription.deleteMany({ where: { id: sub.id } });
     await db.user.delete({ where: { id: cnyUser.id } });
     await db.user.delete({ where: { id: usdUser.id } });
+  });
+
+  it("marks the last available rate stale on fallback and resets on a fresh fix (#106)", async () => {
+    // 冷门币种对，避免撞共享测试库既有数据与其他文件的并发用例
+    const d1 = new Date("2026-01-09T00:00:00Z");
+    const d2 = new Date("2026-01-10T00:00:00Z");
+    await saveFxRate(d1, "BRL", "SEK", 0.11);
+
+    // 抓取失败 → 回退标记最近可用行
+    expect(await markLatestFxStale("BRL", "SEK", d2)).toBe(true);
+    const staled = await db.exchangeRate.findUnique({
+      where: { date_base_quote: { date: d1, base: "BRL", quote: "SEK" } },
+    });
+    expect(staled?.stale).toBe(true);
+    // 已 stale 的行重复标记 / 截止日前无可回退行 → false
+    expect(await markLatestFxStale("BRL", "SEK", d2)).toBe(false);
+    expect(await markLatestFxStale("BRL", "SEK", new Date("2026-01-01T00:00:00Z"))).toBe(false);
+
+    // 新鲜 fix 落表后 stale 复位
+    await saveFxRate(d2, "BRL", "SEK", 0.12);
+    const fresh = await db.exchangeRate.findUnique({
+      where: { date_base_quote: { date: d2, base: "BRL", quote: "SEK" } },
+    });
+    expect(fresh?.stale).toBe(false);
+
+    await db.exchangeRate.deleteMany({
+      where: { base: "BRL", quote: "SEK", date: { in: [d1, d2] } },
+    });
   });
 });

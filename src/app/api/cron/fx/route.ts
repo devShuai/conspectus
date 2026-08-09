@@ -1,7 +1,13 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/server/db";
-import { backfillMissingProjections, collectFxPairs, fetchFxRate, saveFxRate } from "@/server/billing/fx";
+import {
+  backfillMissingProjections,
+  collectFxPairs,
+  fetchFxRate,
+  markLatestFxStale,
+  saveFxRate,
+} from "@/server/billing/fx";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -22,15 +28,21 @@ export async function GET(request: Request): Promise<NextResponse> {
   const pairs = await collectFxPairs();
 
   let fetched = 0;
+  let stale = 0;
   for (const pair of pairs) {
     try {
       const result = await fetchFxRate(pair.base, pair.quote, today);
       if (result) {
         await saveFxRate(result.fxDate, pair.base, pair.quote, result.rate);
         fetched++;
+      } else {
+        // 无新 fix（不该常见）：回退到上一个可用日期并标记 stale（§7.3，#106）
+        if (await markFxStaleSafe(pair.base, pair.quote, today)) stale++;
       }
     } catch {
-      // individual pair failure should not abort the whole run
+      // individual pair failure should not abort the whole run;
+      // 回退到上一个可用日期的汇率并标记 stale（§7.3，#106）
+      if (await markFxStaleSafe(pair.base, pair.quote, today)) stale++;
     }
   }
 
@@ -41,5 +53,14 @@ export async function GET(request: Request): Promise<NextResponse> {
     backfilled += await backfillMissingProjections(user.id, user.baseCurrency);
   }
 
-  return NextResponse.json({ ok: true, fetched, backfilled });
+  return NextResponse.json({ ok: true, fetched, stale, backfilled });
+}
+
+/** 回退标记自身失败（DB 抖动等）不放大为整批失败。 */
+async function markFxStaleSafe(base: string, quote: string, date: Date): Promise<boolean> {
+  try {
+    return await markLatestFxStale(base, quote, date);
+  } catch {
+    return false;
+  }
 }

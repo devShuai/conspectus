@@ -123,6 +123,29 @@ describe.skipIf(DISABLED)("tenant-safe subscription CRUD", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
+  it("rejects currencies the fx source does not cover, accepts the full upstream set (#106)", async () => {
+    const user = await makeUser(uniqueSub("sub-fx"));
+    const base = {
+      name: "X",
+      price: 10,
+      currency: "CNY",
+      billingCycle: "monthly" as const,
+      startedAt: new Date("2026-01-01T00:00:00Z"),
+      status: "active" as const,
+    };
+
+    // XXX 是合法 ISO-4217 但 frankfurter 不覆盖 → 录入时即拒绝（§7.3）
+    await expect(
+      createSubscription(user.id, { ...base, currency: "XXX" }),
+    ).rejects.toThrow(/fx source/);
+    // 上游覆盖但此前被硬编码集合误伤的币种可以正常录入
+    const created = await createSubscription(user.id, { ...base, currency: "KRW" });
+    expect(created.currency).toBe("KRW");
+
+    await db.subscription.delete({ where: { id: created.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
   it("private vendors are tenant-scoped; system vendors readable by all", async () => {
     const a = await makeUser(uniqueSub("vendor-a"));
     const b = await makeUser(uniqueSub("vendor-b"));

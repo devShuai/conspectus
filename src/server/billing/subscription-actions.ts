@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { z } from "zod";
 
 import { currentAppSession } from "@/server/auth/current-session";
+import { isSupportedCurrency } from "@/server/billing/fx";
 import {
   TenantError,
   changeSubscriptionStatus,
@@ -73,7 +74,8 @@ const SubscriptionFormSchema = z.object({
     .string()
     .trim()
     .toUpperCase()
-    .regex(/^[A-Z]{3}$/, "币种需为 3 位 ISO-4217 代码"),
+    .regex(/^[A-Z]{3}$/, "币种需为 3 位 ISO-4217 代码")
+    .refine(isSupportedCurrency, "汇率源暂不覆盖该币种"),
   billingCycle: z.enum(BILLING_CYCLES),
   cycleDays: optionalInt,
   anchorDay: optionalInt,

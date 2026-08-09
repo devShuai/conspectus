@@ -2,6 +2,7 @@ import type { Prisma } from "@prisma/client";
 
 import { db } from "@/server/db";
 
+import { ensureFxRate, isSupportedCurrency, MANUAL_RATE_SOURCE } from "./fx";
 import { lockUserInTx } from "./user-lock";
 
 export class BillingError extends Error {
@@ -62,6 +63,9 @@ export async function recordPaidCharge(
   client?: Prisma.TransactionClient,
 ): Promise<RecordResult> {
   if (client) return recordPaidChargeImpl(input, client);
+  // 汇率就绪必须在锁/事务之外完成（§7.3，#106）：网络调用绝不进持锁事务（#108）。
+  // 调用方自管事务时需自行保证汇率已就绪。
+  await prepareFxForPayment(input.userId, input.currency, input.billedAt, input.fxRate);
   // 默认必须包事务：记录与投影是一个原子事实（§6.2），不是两条独立语句
   return db.$transaction((tx) => recordPaidChargeImpl(input, tx));
 }
@@ -111,6 +115,8 @@ export async function recordRefund(
   client?: Prisma.TransactionClient,
 ): Promise<RecordResult> {
   if (client) return recordRefundImpl(input, client);
+  // 同 recordPaidCharge：按需抓取在锁/事务之外（§7.3 / #108）
+  await prepareFxForPayment(input.userId, input.currency, input.billedAt, null);
   // 默认必须包事务（§6.2 退款关系约束：「同一事务锁定原记录后校验」）——
   // 否则 FOR UPDATE 语句一提交锁就释放，并发退款可双双通过上限校验
   return db.$transaction((tx) => recordRefundImpl(input, tx));
@@ -190,6 +196,15 @@ export async function confirmPendingCharge(
   billingRecordId: string,
   input: { amount?: number; billedAt?: Date },
 ): Promise<RecordResult> {
+  // 事务外预读确定生效的币种/日期，先完成按需抓取（§7.3 / #108）；
+  // 记录不存在则跳过，由事务内抛出统一错误
+  const existing = await db.billingRecord.findFirst({
+    where: { id: billingRecordId, userId, status: "pending", recordType: "charge" },
+    select: { currency: true, billedAt: true },
+  });
+  if (existing) {
+    await prepareFxForPayment(userId, existing.currency, input.billedAt ?? existing.billedAt, null);
+  }
   return db.$transaction(async (tx) => {
     await lockUserInTx(tx, userId);
     const record = await tx.billingRecord.findFirst({
@@ -214,6 +229,37 @@ export async function confirmPendingCharge(
     );
     return { billingRecordId: record.id, projected };
   });
+}
+
+/**
+ * §7.3 汇率就绪（事务外）：
+ * - 汇率源不覆盖的币种必须自带固定汇率（投影 rateSource=manual），否则录入即
+ *   拒绝 —— 绝不静默按 0 计入统计，也不留一条永远补不上的待换算投影（#106）
+ * - 覆盖币种缺行时事务外按需抓取落表（best-effort，抓不到由 fx cron 补齐）
+ */
+async function prepareFxForPayment(
+  userId: string,
+  currency: string,
+  billedAt: Date,
+  fxRate?: number | null,
+): Promise<void> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { baseCurrency: true },
+  });
+  const baseCurrency = user?.baseCurrency ?? "CNY";
+  if (currency === baseCurrency) return;
+  if (!isSupportedCurrency(currency) || !isSupportedCurrency(baseCurrency)) {
+    if (fxRate === undefined || fxRate === null) {
+      throw new BillingError(
+        "invalid_input",
+        `currency ${currency} is not covered by the fx source; provide a manual fxRate`,
+      );
+    }
+    return;
+  }
+  if (fxRate !== undefined && fxRate !== null) return;
+  await ensureFxRate(currency, baseCurrency, billedAt);
 }
 
 async function writeProjection(
@@ -246,7 +292,8 @@ async function writeProjection(
     return true;
   }
 
-  // Look up the best available rate at/after billedAt; if missing → no projection.
+  // Look up the best available rate at/before billedAt; if missing → no projection.
+  const manualRate = fxRate !== undefined && fxRate !== null;
   let rate = fxRate;
   let rateDate = fxDate ?? billedAt;
   if (rate === undefined || rate === null) {
@@ -270,7 +317,8 @@ async function writeProjection(
       signedAmountInBase: signedAmount * rate,
       fxRate: rate,
       fxDate: rateDate,
-      rateSource: "provider",
+      // 调用方手填的固定汇率必须标记 manual（§7.3，#106），不得冒充 provider
+      rateSource: manualRate ? MANUAL_RATE_SOURCE : "provider",
     },
   });
   return true;

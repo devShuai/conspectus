@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { db } from "@/server/db";
 import {
+  BillingError,
   confirmPendingCharge,
   recordPaidCharge,
   recordRefund,
@@ -149,6 +150,87 @@ describe.skipIf(DISABLED)("billing service", () => {
   });
 
   it("stores without projection when fx missing (incomplete, not zero)", async () => {
+    const user = await setupUser("SEK");
+    const sub = await setupSubscription(user.id, "ZAR");
+    // 事务外按需抓取也失败（无网络/上游 5xx）→ 账单照存、投影待补（§7.3）。
+    // 币种对用冷门的 ZAR/SEK：共享测试库里绝不会有 ≤ billedAt 的既有行
+    vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new Error("no network")));
+    let result;
+    try {
+      result = await recordPaidCharge({
+        userId: user.id,
+        subscriptionId: sub.id,
+        amount: 10,
+        currency: "ZAR",
+        billedAt: new Date("2026-01-15T00:00:00Z"),
+        source: "manual",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    expect(result.projected).toBe(false);
+    const conversion = await db.billingConversion.findFirst({
+      where: { billingRecordId: result.billingRecordId },
+    });
+    expect(conversion).toBeNull();
+
+    await db.billingRecord.deleteMany({ where: { userId: user.id } });
+    await db.subscription.deleteMany({ where: { userId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("fetches a historical fix on demand outside the tx when the table has no rate (#106)", async () => {
+    const user = await setupUser("JPY");
+    const sub = await setupSubscription(user.id, "KRW");
+    const fxDate = new Date("2026-01-14T00:00:00Z");
+    // frankfurter 区间响应：含 01-13/01-14 两个 fix，billedAt=01-15 无 fix
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          rates: { "2026-01-13": { JPY: 0.11 }, "2026-01-14": { JPY: 0.12 } },
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    let result;
+    try {
+      result = await recordPaidCharge({
+        userId: user.id,
+        subscriptionId: sub.id,
+        amount: 10000,
+        currency: "KRW",
+        billedAt: new Date("2026-01-15T00:00:00Z"),
+        source: "manual",
+      });
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(result.projected).toBe(true);
+    expect(fetchMock).toHaveBeenCalled();
+    // 抓到 ≤ billedAt 的最近 fix 并落表
+    const saved = await db.exchangeRate.findUnique({
+      where: { date_base_quote: { date: fxDate, base: "KRW", quote: "JPY" } },
+    });
+    expect(saved).not.toBeNull();
+    expect(Number(saved?.rate)).toBeCloseTo(0.12, 8);
+    const conversion = await db.billingConversion.findFirst({
+      where: { billingRecordId: result.billingRecordId },
+    });
+    expect(Number(conversion?.fxRate)).toBeCloseTo(0.12, 8);
+    expect(conversion?.fxDate).toEqual(fxDate);
+    expect(conversion?.rateSource).toBe("provider");
+    expect(Number(conversion?.signedAmountInBase)).toBeCloseTo(1200, 5);
+
+    await db.billingConversion.deleteMany({ where: { userId: user.id } });
+    await db.exchangeRate.delete({ where: { date_base_quote: { date: fxDate, base: "KRW", quote: "JPY" } } });
+    await db.billingRecord.deleteMany({ where: { userId: user.id } });
+    await db.subscription.deleteMany({ where: { userId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("marks a caller-provided fixed rate as manual rateSource (#106)", async () => {
     const user = await setupUser("CNY");
     const sub = await setupSubscription(user.id, "USD");
     const result = await recordPaidCharge({
@@ -158,13 +240,54 @@ describe.skipIf(DISABLED)("billing service", () => {
       currency: "USD",
       billedAt: new Date("2026-01-15T00:00:00Z"),
       source: "manual",
+      fxRate: 7,
+      fxDate: new Date("2026-01-15T00:00:00Z"),
     });
-    expect(result.projected).toBe(false);
+    expect(result.projected).toBe(true);
     const conversion = await db.billingConversion.findFirst({
       where: { billingRecordId: result.billingRecordId },
     });
-    expect(conversion).toBeNull();
+    expect(conversion?.rateSource).toBe("manual");
+    expect(Number(conversion?.fxRate)).toBe(7);
+    expect(Number(conversion?.signedAmountInBase)).toBe(70);
 
+    await db.billingConversion.deleteMany({ where: { userId: user.id } });
+    await db.billingRecord.deleteMany({ where: { userId: user.id } });
+    await db.subscription.deleteMany({ where: { userId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("rejects fx-uncovered currencies without a manual rate, accepts them with one (#106)", async () => {
+    const user = await setupUser("CNY");
+    const sub = await setupSubscription(user.id, "XXX");
+    await expect(
+      recordPaidCharge({
+        userId: user.id,
+        subscriptionId: sub.id,
+        amount: 10,
+        currency: "XXX",
+        billedAt: new Date("2026-01-15T00:00:00Z"),
+        source: "manual",
+      }),
+    ).rejects.toThrow(BillingError);
+
+    const result = await recordPaidCharge({
+      userId: user.id,
+      subscriptionId: sub.id,
+      amount: 10,
+      currency: "XXX",
+      billedAt: new Date("2026-01-15T00:00:00Z"),
+      source: "manual",
+      fxRate: 0.5,
+    });
+    expect(result.projected).toBe(true);
+    const conversion = await db.billingConversion.findFirst({
+      where: { billingRecordId: result.billingRecordId },
+    });
+    expect(conversion?.rateSource).toBe("manual");
+    expect(Number(conversion?.signedAmountInBase)).toBe(5);
+
+    await db.billingConversion.deleteMany({ where: { userId: user.id } });
     await db.billingRecord.deleteMany({ where: { userId: user.id } });
     await db.subscription.deleteMany({ where: { userId: user.id } });
     await db.user.delete({ where: { id: user.id } });

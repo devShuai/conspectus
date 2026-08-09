@@ -383,6 +383,8 @@ model ExchangeRate {
   base   String   @db.Char(3)
   quote  String   @db.Char(3)
   rate   Decimal  @db.Decimal(18, 8)
+  // 抓取失败回退到上一个可用日期时置 true（design §7.3，#106）；新鲜 fix 落表复位
+  stale  Boolean  @default(false)
 
   @@id([date, base, quote])
   @@map("exchange_rates")

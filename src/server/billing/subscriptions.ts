@@ -6,6 +6,7 @@ import {
   nextBillingDate,
   nextBillingOnOrAfter,
 } from "@/server/billing/cycle";
+import { isSupportedCurrency } from "@/server/billing/fx";
 import { localToday } from "@/server/billing/local-date";
 
 /** All business writes must carry the session-derived userId (never client input). */
@@ -69,6 +70,11 @@ function validateSubscriptionInput(
   }
   if (input.currency !== undefined && !VALID_CURRENCY.test(input.currency)) {
     throw new TenantError("invalid_input", "currency must be ISO-4217 (3 letters)");
+  }
+  // §7.3 / #106：汇率源不覆盖的币种录入时即拒绝（订阅实体没有固定汇率字段，
+  // 退无可退），绝不静默按 0 计入统计
+  if (input.currency !== undefined && !isSupportedCurrency(input.currency)) {
+    throw new TenantError("invalid_input", "currency is not covered by the fx source");
   }
   if (
     input.billingCycle === "custom" &&
