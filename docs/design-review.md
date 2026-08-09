@@ -577,14 +577,22 @@ design 仅写 Vitest + Playwright，建议在 M1 起把下列**写成验收清�
 | **§12.4 环境变量** | 服务端缺 `CERTUS_CLI_CLIENT_ID`、`TEST_DATABASE_URL`；collector 侧 5 个变量一个都没有 | 全部补入，collector 单列一段 |
 | **上游依赖** | certus#9 已实现关闭，文档仍写成「M0 认证侧 go/no-go 闸门」「尚不存在」 | R11b 与待确认 #7 改写；上游需求收敛为仅剩 #10 |
 
-### 未解决
+### 偶发失败已定位（提交 9c105c0）
 
-- **一个偶发失败的测试**：四次全量跑里失败 1 次，随后三次全绿，与 #66 评论里记录的连接池争用同型，**仍未定位**。flaky 会训练人忽略红灯，建议单独立项从 Prisma 连接池大小与测试并行度入手。
+连跑六次抓到了真实错误。**并不是此前推测的连接池争用**（#66 评论里的那条判断是错的），而是两个互不相关的原因：
+
+1. **`runRenewals` 用 `include: { user: … }` 取时区**。该关系是必需的，行在扫描与联接之间消失时 Prisma 抛 `Inconsistent query result: Field user is required to return data, got null`。测试里是别的文件在删自己的用户；**生产同样可达**——`deleteAccount` 级联删除，正好能撞上全局扫描，且会让整轮 cron 对所有其他用户一起失败。改为分开按 id 批量查时区，owner 消失的订阅本轮跳过。
+2. **ingest 的 fixture 把 `capturedAt` 钉死在 `2026-01-01`**。`runPurge` 全局删除超过 180 天的快照，多个测试文件都会调它；真实日期越过截止线后，这些快照被**合法地**删掉。而断言检查的正是非权威快照——它按设计不被 `valueSnapshotId` 引用，所以 `notIn` 保护够不着它。改为相对当前时间的偏移，保留断言依赖的先后顺序。
+
+第二条不是竞态而是**时间炸弹**：字面量写下时还在未来，随真实日期推进才变得可达。**任何落在保留期覆盖表上的固定过去日期都会重演**——这一条值得作为 fixture 约定记住。
+
+改动后连跑八次全绿。
 
 ## 10. 修订记录
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-08-08 | **偶发失败定位并修复**（9c105c0）：`runRenewals` 的必需关系 include 在 owner 被并发删除时中断整轮（生产经 `deleteAccount` 可达）；ingest fixture 的固定日期越过 180 天保留期被 purge 合法删除。见 §9n。 |
 | 2026-08-08 | **实现↔文档对账** design.md v0.5.1 → **v0.6.0**：补 10 条端点 / 3 张表 / 2 个安全修复字段 / collector 环境变量；项目状态与上游依赖描述改为与实现一致。详见 §9n。 |
 | 2026-08-07 | 初稿：基于 design.md v0.1 全文审阅 |
 | 2026-08-07 | P0 全部 8 项落地 design.md v0.1.1：M1/M1b 拆分（P1）、local×CLI 限制（A1 选①）、`autoRenew=false` 只提醒不建 pending（D5）、年化口径与 trial 迁移（D1/D3）、字段变更同步重算（D2）、UsageQuota 唯一约束（D4）、G 表重排加阶段列（C1/C9）、`src/` 布局锁定（C2/C3）。一并落地的 P1/P2：C5/C6/C7/C8、D7/D8/D9/D10、A2/A3/A5、T1/T2/T3/T5、U1、P2（示例默认 certus）、§4.5 验收清单（design §12.3）。**落地时的增量修正**（本审阅未列出、改稿时发现）：`UsageSnapshot.usedValue` 存不了 balance 读数 → 改为语义随 kind 的 `value` 列；快照幂等约束在可空 `deviceId` 上失效（NULL 互不相等）→ 改表达式唯一索引；年化公式 `365/天数` 对 monthly 会得出 ×12.17 → 月/季/年改整数倍；§5.1 node-cron 与 §5.4 cron 容器矛盾 → 统一后者；登录时序图与客户端注册的 `login_methods` 矛盾 → 已对齐；风险表 R7/R8 间空行断表 → 已修。P3（README 能力分层）已在 README 落地。**未落地**：P5/待确认项转 issue、T4（i18n 一节）、A4（注销冷却文案）、D6（tags GIN）。 |
