@@ -1,12 +1,17 @@
 /**
- * Interactive M0 E2E for conspectus#6:
- * device code + usage:write + cross-client introspection.
+ * Retained M0 verification tool (kept per conspectus#122): interactive E2E
+ * for conspectus#6 — device code + usage:write + cross-client introspection.
+ *
+ * When to use: run manually to diagnose the certus device-authorization /
+ * introspection chain (e.g. after certus upgrades or config changes);
+ * requires the device-m0 config in .env.local. Not part of CI.
+ * Evidence and conclusions: docs/m0-device-introspection.md.
  *
  * Never prints access tokens, refresh tokens, client secrets, or raw subjects.
  *
  * Usage:
- *   npx tsx scripts/m0-device-introspection.ts
- *   npx tsx scripts/m0-device-introspection.ts --deny-probe
+ *   npm run m0:device-introspect
+ *   npm run m0:device-introspect -- --deny-probe
  */
 import { readFileSync, existsSync } from "node:fs";
 import { resolve } from "node:path";

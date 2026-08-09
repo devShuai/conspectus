@@ -195,7 +195,7 @@ conspectus/
 │     └─ collectors/          # 每个被采集工具一个实现
 └─ src/
    ├─ app/
-   │  ├─ (auth)/              # 登录页；本地模式下另有注册/找回密码（按 AUTH_MODE 条件注册）
+   │  ├─ login/               # 登录页；本地模式下另有注册/找回密码（register/、reset-password/，按 AUTH_MODE 条件注册）
    │  ├─ (app)/               # 需登录
    │  │  ├─ page.tsx          # 总览 Dashboard
    │  │  ├─ subscriptions/    # 列表、详情、编辑
@@ -213,20 +213,17 @@ conspectus/
    │     ├─ {health,ready}/       # 存活 / 就绪探针
    │     ├─ inbound/email/    # 邮件 webhook 入口
    │     └─ export/           # CSV 导出流
-   ├─ components/             # AppLogo.tsx 等
-   ├─ server/                 # 领域逻辑，不依赖 React
-   │  ├─ auth/                # certus RP 配置、JIT 建档、会话与登出
-   │  ├─ billing/             # 周期推算、年化折算
-   │  ├─ fx/                  # 汇率抓取、换算
-   │  ├─ usage/
-   │  │  ├─ registry.ts       # Provider 注册表
-   │  │  ├─ ingest.ts         # 通道 A/B/C 共用的入库、去重与周期重置
-   │  │  └─ providers/        # 每个服务商一个适配器
-   │  ├─ notify/              # 规则求值、渠道分发、去重
-   │  ├─ import/              # 邮件解析规则、CSV 解析
-   │  ├─ crypto.ts            # 凭证加解密
-   │  └─ db.ts                # Prisma client 单例
-   └─ lib/                    # 通用工具、Zod schema、常量
+   ├─ components/             # 导航、订阅表单、图表等客户端组件
+   └─ server/                 # 领域逻辑，不依赖 React
+      ├─ auth/                # certus RP 配置、JIT 建档、会话与登出、凭证加解密（crypto.ts）
+      ├─ billing/             # 周期推算、年化折算、汇率抓取与换算（fx.ts）
+      ├─ usage/
+      │  ├─ sync.ts           # Provider 注册表与同步调度
+      │  ├─ ingest.ts         # 通道 A/B/C 共用的入库、去重与周期重置
+      │  └─ providers/        # 每个服务商一个适配器
+      ├─ notify/              # 规则求值、渠道分发、去重
+      ├─ import/              # 邮件解析规则、CSV 解析
+      └─ db.ts                # Prisma client 单例
 ```
 
 ### 5.4 部署形态
@@ -1157,7 +1154,7 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 
 **Web Push**：PWA 让它成为可能的第三个通知渠道（现有渠道是邮件与 Webhook），但**不进 V1**。原因是它需要 VAPID 密钥、订阅生命周期管理、失效订阅清理，且 iOS 上必须先"添加到主屏幕"才能收到 —— 这个前置条件会让相当一部分用户以为功能坏了。等 PWA 的安装率有数据了再评估。
 
-**资产缺口**：`public/` 目前只有 SVG。PWA 需要 192/512 的 PNG 与 maskable 变体，需要基于现有 `docs/assets/logo-mark.svg` 单独出图；源设计说明与 `AppLogo.tsx` 模板仍保留在 [design/logo/README-snippet.md](../design/logo/README-snippet.md)，并非运行时资产路径。
+**资产现状**：`public/icons/` 已有 `icon-192.png`、`icon-512.png` 与 `icon-512-maskable.png`（基于 `docs/assets/logo-mark.svg` 出图）；仅缺 192 的 maskable 变体，剩余出图见 #121-11。源设计说明与 `AppLogo.tsx` 模板仍保留在 [design/logo/README-snippet.md](../design/logo/README-snippet.md)，并非运行时资产路径。
 
 ---
 
