@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 
 import ExportPanel from "@/components/settings/export-panel";
+import ImportPanel from "@/components/settings/import-panel";
 import { currentAppSession } from "@/server/auth/current-session";
+import { confirmSubscriptionCsvImportAction } from "@/server/import/actions";
 
 export const dynamic = "force-dynamic";
 
@@ -27,10 +29,7 @@ export default async function DataPage({
       />
 
       <h2>CSV 导入</h2>
-      <p className="muted">
-        导入预检（上传 → 逐行校验预览 → 确认执行）尚未开放 —— 解析与确认链路未实现，
-        开放前不会在界面上伪装可用。当前可通过 CSV 导出做备份与迁移。
-      </p>
+      <ImportPanel confirmAction={confirmSubscriptionCsvImportAction} />
     </main>
   );
 }
