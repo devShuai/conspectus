@@ -150,6 +150,18 @@ button:focus-visible,
   text-decoration: underline;
 }
 
+/* 正文内的行内链接静止态原本与正文同色、同字重、无下划线，只有 :hover 才显形，
+   触屏上则永远不显形——登录页的「去登录 / 注册账号」、连接页的「创建一条订阅」
+   都因此看不出可点。文字类容器内的链接一律常驻下划线；.button / .stat-card /
+   导航各有自己的无下划线样式，不受影响。 */
+.shell .eyebrow a:not(.button),
+.shell .muted a:not(.button),
+.shell .summary a:not(.button),
+.shell .field-hint a:not(.button) {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
 code {
   overflow-wrap: anywhere;
 }
