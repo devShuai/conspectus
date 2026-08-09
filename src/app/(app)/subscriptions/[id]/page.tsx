@@ -15,6 +15,7 @@ import {
 import SubscriptionForm from "@/components/subscription-form";
 import ActionButton from "@/components/action-button";
 import { formatMoney } from "@/components/money";
+import { annualizedCost } from "@/server/billing/cycle";
 
 export const dynamic = "force-dynamic";
 
@@ -25,24 +26,6 @@ const STATUS_LABEL: Record<string, string> = {
   canceled: "已取消",
   expired: "已到期",
 };
-
-/** Integer multiples for month/quarter/year (design §7.2), not 365/days. */
-function annualized(price: number, cycle: string, cycleDays: number | null): number | null {
-  switch (cycle) {
-    case "monthly":
-      return price * 12;
-    case "quarterly":
-      return price * 4;
-    case "yearly":
-      return price;
-    case "weekly":
-      return price * (365 / 7);
-    case "custom":
-      return cycleDays && cycleDays > 0 ? price * (365 / cycleDays) : null;
-    default:
-      return null; // lifetime / one_time: needs an amortisation window
-  }
-}
 
 function toDateInput(value: Date | null): string {
   return value ? value.toISOString().slice(0, 10) : "";
@@ -65,7 +48,11 @@ export default async function SubscriptionDetailPage({
 
   const vendors = await listVendors(session.userId);
   const price = Number(sub.price);
-  const yearly = annualized(price, sub.billingCycle, sub.cycleDays);
+  // 年化口径以服务端为唯一实现（§7.2 / #79）；one_time 无年化口径不展示
+  const yearly =
+    sub.billingCycle === "one_time"
+      ? null
+      : annualizedCost(price, sub.billingCycle, sub.cycleDays);
 
   return (
     <main className="shell">
@@ -86,6 +73,9 @@ export default async function SubscriptionDetailPage({
           </div>
           {sub.status === "trial" && (
             <div className="stat-sub">试用中 · 按转正价格估算</div>
+          )}
+          {sub.billingCycle === "lifetime" && (
+            <div className="stat-sub">终身买断 · 按 3 年摊销估算</div>
           )}
         </div>
         <div className="stat-card">

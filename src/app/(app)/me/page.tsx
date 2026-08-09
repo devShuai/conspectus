@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { currentAppSession } from "@/server/auth/current-session";
+import { formatDateTime } from "@/components/datetime";
 import { db } from "@/server/db";
 
 export const dynamic = "force-dynamic";
@@ -63,7 +64,7 @@ export default async function MePage({
             </tr>
             <tr>
               <th>最近登录</th>
-              <td>{user.lastLoginAt?.toISOString().slice(0, 16).replace("T", " ") ?? "—"}</td>
+              <td>{user.lastLoginAt ? formatDateTime(user.lastLoginAt, user.timezone) : "—"}</td>
             </tr>
           </tbody>
         </table>

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { formatDateTime } from "@/components/datetime";
 import { currentAppSession } from "@/server/auth/current-session";
 import { listSubscriptions } from "@/server/billing/subscriptions";
 import { db } from "@/server/db";
@@ -14,9 +15,9 @@ export const dynamic = "force-dynamic";
 
 export default async function UsagePage() {
   const session = await currentAppSession();
-  if (!session) redirect("/");
+  if (!session) redirect("/login");
 
-  const [subs, quotas, connections] = await Promise.all([
+  const [subs, quotas, connections, user] = await Promise.all([
     listSubscriptions(session.userId),
     db.usageQuota.findMany({
       where: { userId: session.userId },
@@ -24,7 +25,12 @@ export default async function UsagePage() {
       orderBy: { createdAt: "desc" },
     }),
     db.providerConnection.findMany({ where: { userId: session.userId } }),
+    db.user.findUnique({
+      where: { id: session.userId },
+      select: { timezone: true },
+    }),
   ]);
+  const timezone = user?.timezone ?? "UTC";
 
   // 每个 quota 取最近 N 条快照做外推（design §7.4 用量洞察）；
   // quota 类只取本周期内的点，周期重置前的读数会污染斜率
@@ -143,8 +149,8 @@ export default async function UsagePage() {
               <tr key={conn.id}>
                 <td>{conn.displayName}</td>
                 <td><span className="tag">{conn.status}</span></td>
-                <td>{conn.lastSyncAt?.toISOString() ?? "—"}</td>
-                <td>{conn.nextSyncAt?.toISOString() ?? "—"}</td>
+                <td>{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
+                <td>{conn.nextSyncAt ? formatDateTime(conn.nextSyncAt, timezone) : "—"}</td>
                 <td>{conn.lastError ?? "—"}</td>
               </tr>
             ))}

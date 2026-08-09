@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import ActionButton from "@/components/action-button";
+import { formatDateTime } from "@/components/datetime";
 import { currentAppSession } from "@/server/auth/current-session";
 import { db } from "@/server/db";
 import { revokeDeviceAction } from "@/server/settings/actions";
@@ -11,10 +12,17 @@ export default async function DevicesSettingsPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
 
-  const devices = await db.collectorDevice.findMany({
-    where: { userId: session.userId },
-    orderBy: { createdAt: "desc" },
-  });
+  const [devices, user] = await Promise.all([
+    db.collectorDevice.findMany({
+      where: { userId: session.userId },
+      orderBy: { createdAt: "desc" },
+    }),
+    db.user.findUnique({
+      where: { id: session.userId },
+      select: { timezone: true },
+    }),
+  ]);
+  const timezone = user?.timezone ?? "UTC";
 
   return (
     <main className="shell">
@@ -39,7 +47,7 @@ export default async function DevicesSettingsPage() {
                   <td>{device.name}</td>
                   <td>{device.platform}</td>
                   <td>{device.agentVersion}</td>
-                  <td>{device.lastSeenAt?.toISOString().slice(0, 16).replace("T", " ") ?? "从未上报"}</td>
+                  <td>{device.lastSeenAt ? formatDateTime(device.lastSeenAt, timezone) : "从未上报"}</td>
                   <td>
                     {device.revokedAt ? (
                       <span className="tag warn">已撤销</span>

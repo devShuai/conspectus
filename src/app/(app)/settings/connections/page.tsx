@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import ActionButton from "@/components/action-button";
 import { ConnectProviderForm } from "@/components/settings/provider-forms";
+import { formatDateTime } from "@/components/datetime";
 import { currentAppSession } from "@/server/auth/current-session";
 import { db } from "@/server/db";
 import {
@@ -24,7 +25,7 @@ export default async function ConnectionsPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
 
-  const [connections, providers, subscriptions] = await Promise.all([
+  const [connections, providers, subscriptions, user] = await Promise.all([
     listProviderConnections(session.userId),
     Promise.resolve(
       listBalanceAdapters().map((p) => ({ id: p.id, displayName: p.displayName })),
@@ -34,7 +35,12 @@ export default async function ConnectionsPage() {
       orderBy: { name: "asc" },
       select: { id: true, name: true },
     }),
+    db.user.findUnique({
+      where: { id: session.userId },
+      select: { timezone: true },
+    }),
   ]);
+  const timezone = user?.timezone ?? "UTC";
   const providerNames = new Map(providers.map((p) => [p.id, p.displayName]));
 
   return (
@@ -63,7 +69,7 @@ export default async function ConnectionsPage() {
                     <div className="field-hint">{conn.lastError.slice(0, 80)}</div>
                   )}
                 </td>
-                <td>{conn.lastSyncAt?.toISOString().slice(0, 16).replace("T", " ") ?? "—"}</td>
+                <td>{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
                 <td>
                   {conn.status !== "disabled" && (
                     <ActionButton

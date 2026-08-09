@@ -6,6 +6,7 @@ import {
   ManualUsageUpdateForm,
 } from "@/components/settings/usage-forms";
 import { currentAppSession } from "@/server/auth/current-session";
+import { formatDateTime } from "@/components/datetime";
 import { formatMoney } from "@/components/money";
 import { db } from "@/server/db";
 import { COLLECTOR_OPTIONS } from "@/server/usage/bindings";
@@ -21,7 +22,7 @@ export default async function UsageEntryPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
 
-  const [subscriptions, quotas] = await Promise.all([
+  const [subscriptions, quotas, user] = await Promise.all([
     db.subscription.findMany({
       where: { userId: session.userId },
       orderBy: { name: "asc" },
@@ -37,7 +38,12 @@ export default async function UsageEntryPage() {
         },
       },
     }),
+    db.user.findUnique({
+      where: { id: session.userId },
+      select: { timezone: true },
+    }),
   ]);
+  const timezone = user?.timezone ?? "UTC";
 
   const collectors = COLLECTOR_OPTIONS.map((c) => ({
     id: c.id,
@@ -69,7 +75,7 @@ export default async function UsageEntryPage() {
                 ? `剩余 ${quota.remainingValue ? formatMoney(Number(quota.remainingValue), quota.unit) : "—"}`
                 : `已用 ${quota.usedValue?.toString() ?? "—"}${quota.limitValue ? ` / ${quota.limitValue.toString()}` : ""} ${quota.unit}`}
               {quota.valueCapturedAt &&
-                ` · ${quota.valueCapturedAt.toISOString().slice(0, 16).replace("T", " ")}`}
+                ` · ${formatDateTime(quota.valueCapturedAt, timezone)}`}
             </p>
             {quota.bindings.length > 0 && (
               <p className="usage-meta">
