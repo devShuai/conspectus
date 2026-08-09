@@ -1,6 +1,7 @@
 import { db } from "@/server/db";
 import { annualizedCost } from "@/server/billing/cycle";
 import { countMissingProjections } from "@/server/billing/fx";
+import { dateKey, localToday } from "@/server/billing/local-date";
 
 export interface DashboardStats {
   baseCurrency: string;
@@ -171,6 +172,62 @@ export async function billingCalendar(
   return [...byDate.entries()]
     .sort((a, b) => a[0].localeCompare(b[0]))
     .map(([, day]) => day);
+}
+
+export interface UpcomingRenewals {
+  days: number;
+  count: number; // 窗口内续费笔数（active/trial 的 nextBillingAt）
+  nearestDate: string | null; // 最近一笔的日期（YYYY-MM-DD）
+  nearestAmounts: Array<{ amount: number; currency: string }>; // 最近一天按币种分列合计
+  trialsEnding: number; // 窗口内试用到期数（trialEndsAt）
+}
+
+/**
+ * 未来 N 天续费（issue #81 / design §4 场景 2）：active/trial 且 nextBillingAt
+ * 落在 [用户今天, 今天+N]，与 billingCalendar 同口径（@db.Date，「今天」按用户
+ * 时区解析，同 renewals worker）。最近一天的金额按币种分列，不跨币种相加；
+ * trialEndsAt 落在窗口内的试用单独计数，供卡片提示「试用即将到期」。
+ */
+export async function upcomingRenewals(userId: string, days = 7): Promise<UpcomingRenewals> {
+  const user = await db.user.findUnique({
+    where: { id: userId },
+    select: { timezone: true },
+  });
+  const today = localToday(new Date(), user?.timezone ?? "UTC");
+  const windowEnd = new Date(today.getTime() + days * 86_400_000);
+
+  const subs = await db.subscription.findMany({
+    where: {
+      userId,
+      status: { in: ["active", "trial"] },
+      nextBillingAt: { gte: today, lte: windowEnd },
+    },
+    select: { price: true, currency: true, nextBillingAt: true },
+    orderBy: { nextBillingAt: "asc" },
+  });
+
+  const nearestDate = subs[0]?.nextBillingAt ? dateKey(subs[0].nextBillingAt) : null;
+  const byCurrency = new Map<string, number>();
+  for (const sub of subs) {
+    if (!sub.nextBillingAt || dateKey(sub.nextBillingAt) !== nearestDate) break;
+    byCurrency.set(sub.currency, (byCurrency.get(sub.currency) ?? 0) + Number(sub.price));
+  }
+
+  const trialsEnding = await db.subscription.count({
+    where: {
+      userId,
+      status: "trial",
+      trialEndsAt: { gte: today, lte: windowEnd },
+    },
+  });
+
+  return {
+    days,
+    count: subs.length,
+    nearestDate,
+    nearestAmounts: [...byCurrency.entries()].map(([currency, amount]) => ({ amount, currency })),
+    trialsEnding,
+  };
 }
 
 /** 最新可用汇率（≤ 今天）；pending 与年化折算共用（§7.3：预估口径用当日最新汇率）。 */

@@ -5,7 +5,7 @@ import { currentAppSession } from "@/server/auth/current-session";
 import EmptyState from "@/components/empty-state";
 import { formatMoney } from "@/components/money";
 import { listSubscriptions } from "@/server/billing/subscriptions";
-import { dashboardStats } from "@/server/billing/stats";
+import { dashboardStats, upcomingRenewals } from "@/server/billing/stats";
 import { db } from "@/server/db";
 import { idleCandidates } from "@/server/usage/manual";
 
@@ -15,10 +15,11 @@ export default async function DashboardPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
 
-  const [subs, stats, idle] = await Promise.all([
+  const [subs, stats, idle, upcoming] = await Promise.all([
     listSubscriptions(session.userId),
     dashboardStats(session.userId),
     idleCandidates(session.userId),
+    upcomingRenewals(session.userId),
   ]);
 
   // 闲置识别（design §7.4）：连续 3 周期利用率 <10% 的 quota 映射回订阅，
@@ -62,6 +63,25 @@ export default async function DashboardPage() {
           <div className="stat-label">年化成本</div>
           <div className="stat-value">{formatMoney(stats.annualized, stats.baseCurrency)}</div>
         </div>
+        <Link href="/calendar" className="stat-card">
+          <div className="stat-label">未来 {upcoming.days} 天续费</div>
+          <div className="stat-value">
+            {upcoming.count} <span className="stat-sub">笔</span>
+          </div>
+          {upcoming.nearestDate ? (
+            <div className="stat-sub">
+              最近 {upcoming.nearestDate} ·{" "}
+              {upcoming.nearestAmounts
+                .map((a) => formatMoney(a.amount, a.currency))
+                .join(" + ")}
+            </div>
+          ) : (
+            <div className="stat-sub">{upcoming.days} 天内无续费</div>
+          )}
+          {upcoming.trialsEnding > 0 && (
+            <div className="stat-warn">{upcoming.trialsEnding} 个试用即将到期</div>
+          )}
+        </Link>
         <div className="stat-card">
           <div className="stat-label">预计将付</div>
           <div className="stat-value">

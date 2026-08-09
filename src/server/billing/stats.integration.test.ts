@@ -1,7 +1,14 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { billingCalendar, categoryBreakdown, dashboardStats, monthlyTrend } from "./stats";
+import { dateKey, localToday } from "./local-date";
+import {
+  billingCalendar,
+  categoryBreakdown,
+  dashboardStats,
+  monthlyTrend,
+  upcomingRenewals,
+} from "./stats";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 
@@ -175,6 +182,45 @@ describe.skipIf(DISABLED)("dashboard stats", () => {
     expect(days[1]?.date).toBe("2026-02-20");
 
     await db.billingRecord.deleteMany({ where: { userId: user.id } });
+    await db.subscription.deleteMany({ where: { userId: user.id } });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("upcoming renewals counts dues in [today, today+N] with nearest day per currency (#81)", async () => {
+    const user = await setupUser();
+    // setupUser 走 schema 默认时区 Asia/Shanghai，与 upcomingRenewals 的「今天」同口径
+    const today = localToday(new Date(), "Asia/Shanghai");
+    const plus = (n: number) => new Date(today.getTime() + n * 86_400_000);
+    const base = {
+      userId: user.id,
+      billingCycle: "monthly" as const,
+      startedAt: new Date("2026-01-01T00:00:00Z"),
+    };
+    await db.subscription.createMany({
+      data: [
+        { ...base, name: "A", price: 100, currency: "CNY", nextBillingAt: plus(2), status: "active" },
+        { ...base, name: "B", price: 20, currency: "USD", nextBillingAt: plus(2), status: "active" },
+        { ...base, name: "C", price: 1, currency: "CNY", nextBillingAt: plus(7), status: "active" }, // 边界含今天+7
+        { ...base, name: "D", price: 1, currency: "CNY", nextBillingAt: plus(8), status: "active" }, // 窗口外
+        { ...base, name: "E", price: 1, currency: "CNY", nextBillingAt: plus(1), status: "paused" }, // 状态排除
+        { ...base, name: "F", price: 50, currency: "CNY", nextBillingAt: plus(30), status: "trial", trialEndsAt: plus(3) },
+      ],
+    });
+
+    const upcoming = await upcomingRenewals(user.id);
+    expect(upcoming.days).toBe(7);
+    expect(upcoming.count).toBe(3); // A/B/C；D 窗口外、E paused 不计
+    expect(upcoming.nearestDate).toBe(dateKey(plus(2)));
+    // 最近一天按币种分列合计，不跨币种相加
+    expect(upcoming.nearestAmounts).toHaveLength(2);
+    expect(upcoming.nearestAmounts).toEqual(
+      expect.arrayContaining([
+        { currency: "CNY", amount: 100 },
+        { currency: "USD", amount: 20 },
+      ]),
+    );
+    expect(upcoming.trialsEnding).toBe(1); // F 的 trialEndsAt 在 7 天内
+
     await db.subscription.deleteMany({ where: { userId: user.id } });
     await db.user.delete({ where: { id: user.id } });
   });
