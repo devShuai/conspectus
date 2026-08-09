@@ -92,15 +92,50 @@ export async function clearArm(input: {
 /** reminder（续费/试用）默认用户本地 09:00；操作性告警立即投递（§7.6）。 */
 type EventKind = "reminder" | "operational";
 
+/** 摘要时刻（本地小时）；#116 落地 digestLocalTime 后按渠道覆盖。 */
+const DIGEST_LOCAL_HOUR = 9;
+
 function scheduledFor(
   channel: { mode: string },
   kind: EventKind,
   occurredAt: Date,
   timezone: string,
 ): Date {
-  if (channel.mode === "daily_digest") return nextLocalTime(occurredAt, timezone, 9);
   if (kind === "reminder") return nextLocalTime(occurredAt, timezone, 9);
   return occurredAt;
+}
+
+/**
+ * daily_digest 入队（§7.6 / #91）：计算「严格晚于入队当前时刻」的下一摘要本地
+ * 日期，upsert (channelId, localDate) 批次并把 Delivery 关联过去（刻意不用
+ * occurredAt —— 回填的旧事件也不得把批次排到过去）。
+ * 已非 pending 的批次（发送中/已发送/已终态）不接收迟到事件，顺延到下一个摘要日；
+ * 终态批次只可能属于过去的摘要时刻，顺延循环必然在 pending 批次上收敛。
+ */
+async function upsertDigestBatch(
+  tx: Tx,
+  input: { userId: string; channelId: string; timezone: string },
+): Promise<{ id: string; scheduledAt: Date }> {
+  let from = new Date();
+  for (let roll = 0; roll < 10; roll++) {
+    const scheduledAt = nextLocalTime(from, input.timezone, DIGEST_LOCAL_HOUR);
+    const localDate = localToday(scheduledAt, input.timezone);
+    const digest = await tx.notificationDigest.upsert({
+      where: { channelId_localDate: { channelId: input.channelId, localDate } },
+      create: {
+        userId: input.userId,
+        channelId: input.channelId,
+        localDate,
+        scheduledAt,
+      },
+      update: {},
+    });
+    if (digest.status === "pending") {
+      return { id: digest.id, scheduledAt: digest.scheduledAt };
+    }
+    from = digest.scheduledAt;
+  }
+  throw new Error("digest batch roll-forward did not converge");
 }
 
 async function insertDeliveries(
@@ -111,6 +146,26 @@ async function insertDeliveries(
     where: { userId: input.userId, enabled: true },
   });
   for (const channel of channels) {
+    if (channel.mode === "daily_digest") {
+      const digest = await upsertDigestBatch(tx, {
+        userId: input.userId,
+        channelId: channel.id,
+        timezone: input.timezone,
+      });
+      await tx.notificationDelivery.createMany({
+        data: [
+          {
+            userId: input.userId,
+            eventId: input.eventId,
+            channelId: channel.id,
+            digestId: digest.id,
+            scheduledAt: digest.scheduledAt,
+          },
+        ],
+        skipDuplicates: true, // (eventId, channelId) unique
+      });
+      continue;
+    }
     const scheduledAt = scheduledFor(channel, input.kind, input.occurredAt, input.timezone);
     await tx.notificationDelivery.createMany({
       data: [

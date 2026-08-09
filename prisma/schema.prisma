@@ -634,6 +634,7 @@ enum NotificationDigestStatus {
   sending
   sent
   failed
+  blocked
   canceled
 }
 

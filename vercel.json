@@ -1,6 +1,7 @@
 {
   "crons": [
     { "path": "/api/cron/notification-dispatch", "schedule": "* * * * *" },
+    { "path": "/api/cron/notification-digest", "schedule": "* * * * *" },
     { "path": "/api/cron/renewals", "schedule": "0 * * * *" },
     { "path": "/api/cron/usage-sync", "schedule": "0 * * * *" },
     { "path": "/api/cron/notification-scan", "schedule": "15 * * * *" },

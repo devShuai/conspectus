@@ -18,6 +18,7 @@ job() { # name interval_seconds
 }
 
 job notification-dispatch 60
+job notification-digest 60
 job renewals 3600
 job usage-sync 3600
 job notification-scan 3600
