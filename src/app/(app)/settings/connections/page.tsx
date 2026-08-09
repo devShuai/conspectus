@@ -77,7 +77,7 @@ export default async function ConnectionsPage() {
                       <div className="field-hint">{conn.lastError.slice(0, 80)}</div>
                     )}
                   </td>
-                  <td>{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
+                  <td className="date">{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
                   <td>
                     {conn.status !== "disabled" && (
                       <ActionButton

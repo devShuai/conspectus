@@ -59,7 +59,7 @@ export default async function DevicesSettingsPage() {
                     <td>{device.name}</td>
                     <td>{device.platform}</td>
                     <td>{device.agentVersion}</td>
-                    <td>{device.lastSeenAt ? formatDateTime(device.lastSeenAt, timezone) : "从未上报"}</td>
+                    <td className="date">{device.lastSeenAt ? formatDateTime(device.lastSeenAt, timezone) : "从未上报"}</td>
                     <td>
                       {device.revokedAt ? (
                         <span className="tag warn">已撤销</span>

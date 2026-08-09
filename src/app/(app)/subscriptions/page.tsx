@@ -76,7 +76,7 @@ export default async function SubscriptionsPage() {
             <thead>
               <tr>
                 <th scope="col">名称</th>
-                <th scope="col">价格</th>
+                <th scope="col" className="num">价格</th>
                 <th scope="col">周期</th>
                 <th scope="col">下次续费</th>
                 <th scope="col">状态</th>
@@ -92,14 +92,14 @@ export default async function SubscriptionsPage() {
                     )}
                     {sub.planName && <span className="muted"> · {sub.planName}</span>}
                   </td>
-                  <td>{formatMoney(Number(sub.price), sub.currency)}</td>
+                  <td className="num">{formatMoney(Number(sub.price), sub.currency)}</td>
                   <td>
                     {CYCLE_LABEL[sub.billingCycle] ?? sub.billingCycle}
                     {sub.billingCycle === "custom" && sub.cycleDays
                       ? ` ${sub.cycleDays} 天`
                       : ""}
                   </td>
-                  <td>{formatDate(sub.nextBillingAt)}</td>
+                  <td className="date">{formatDate(sub.nextBillingAt)}</td>
                   <td>
                     <span className="tag">{STATUS_LABEL[sub.status] ?? sub.status}</span>
                     {sub.status === "trial" && (

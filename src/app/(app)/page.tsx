@@ -149,7 +149,7 @@ export default async function DashboardPage() {
               <tr>
                 <th scope="col">名称</th>
                 <th scope="col">状态</th>
-                <th scope="col">价格</th>
+                <th scope="col" className="num">价格</th>
                 <th scope="col">周期</th>
                 <th scope="col">下次缴费</th>
               </tr>
@@ -162,11 +162,11 @@ export default async function DashboardPage() {
                     <span className="tag">{sub.status}</span>
                     {sub.status === "trial" && <span className="tag warn">试用中</span>}
                   </td>
-                  <td>
+                  <td className="num">
                     {sub.currency} {sub.price.toString()}
                   </td>
                   <td>{sub.billingCycle}</td>
-                  <td>
+                  <td className="date">
                     {sub.nextBillingAt
                       ? sub.nextBillingAt.toISOString().slice(0, 10)
                       : "—"}

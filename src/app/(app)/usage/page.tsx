@@ -156,8 +156,8 @@ export default async function UsagePage() {
               <tr key={conn.id}>
                 <td>{conn.displayName}</td>
                 <td><span className="tag">{conn.status}</span></td>
-                <td>{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
-                <td>{conn.nextSyncAt ? formatDateTime(conn.nextSyncAt, timezone) : "—"}</td>
+                <td className="date">{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
+                <td className="date">{conn.nextSyncAt ? formatDateTime(conn.nextSyncAt, timezone) : "—"}</td>
                 <td>{conn.lastError ?? "—"}</td>
               </tr>
             ))}

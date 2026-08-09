@@ -144,6 +144,11 @@ code {
   border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, Canvas 70%, transparent);
+  /* 轻量层级（#84）：与 shell 大阴影之间补上过渡层 */
+  box-shadow: 0 8px 24px rgb(20 22 31 / 6%);
+  transition:
+    box-shadow 0.15s ease-out,
+    border-color 0.15s ease-out;
 }
 
 /* 整卡可点（#81 续费卡 → /calendar）：清掉链接默认样式 */
@@ -155,7 +160,7 @@ a.stat-card {
 
 .stat-label {
   font-size: 13px;
-  opacity: 0.65;
+  color: var(--brand-muted);
 }
 
 .stat-value {
@@ -163,6 +168,7 @@ a.stat-card {
   font-size: 26px;
   font-weight: 750;
   letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
 }
 
 .stat-sub {
@@ -194,6 +200,26 @@ a.stat-card {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   opacity: 0.6;
+}
+
+/* 数字/金额列右对齐 + 等宽数字（#84）；日期列不换行 */
+.data-table .num {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.data-table .date {
+  white-space: nowrap;
+}
+
+/* 行 hover 反馈（#84） */
+.data-table tbody tr {
+  transition: background-color 0.15s ease-out;
+}
+
+.data-table tbody tr:hover {
+  background: color-mix(in srgb, currentColor 5%, transparent);
 }
 
 /* 横向滚动容器（#77 / design.md §7.9）：宽表格在窄屏容器内滚动，
@@ -233,6 +259,17 @@ a.stat-card {
   border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
   border-radius: 16px;
   background: color-mix(in srgb, Canvas 70%, transparent);
+  box-shadow: 0 8px 24px rgb(20 22 31 / 6%);
+  transition:
+    box-shadow 0.15s ease-out,
+    border-color 0.15s ease-out;
+}
+
+/* 卡片 hover 反馈（#84） */
+.stat-card:hover,
+.usage-card:hover {
+  border-color: color-mix(in srgb, currentColor 30%, transparent);
+  box-shadow: 0 12px 32px rgb(20 22 31 / 10%);
 }
 
 .usage-card-head {
