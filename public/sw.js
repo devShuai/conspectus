@@ -1,5 +1,5 @@
 const CACHE_PREFIX = "conspectus-static-";
-const CACHE = `${CACHE_PREFIX}v2`;
+const CACHE = `${CACHE_PREFIX}v3`;
 const LEGACY_CACHES = new Set(["conspectus-shell-v1"]);
 const OFFLINE_PAGE = "/offline.html";
 const PRECACHE = [
