@@ -11,6 +11,15 @@ import { idleCandidates } from "@/server/usage/manual";
 
 export const dynamic = "force-dynamic";
 
+/* 状态分级着色（#85），与订阅列表同一套映射 */
+const STATUS_TAG: Record<string, string> = {
+  trial: "trial",
+  active: "ok",
+  paused: "off",
+  canceled: "off",
+  expired: "off",
+};
+
 export default async function DashboardPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
@@ -159,8 +168,10 @@ export default async function DashboardPage() {
                 <tr key={sub.id}>
                   <td>{sub.name}</td>
                   <td>
-                    <span className="tag">{sub.status}</span>
-                    {sub.status === "trial" && <span className="tag warn">试用中</span>}
+                    <span className={`tag ${STATUS_TAG[sub.status] ?? ""}`.trim()}>
+                      {sub.status}
+                    </span>
+                    {sub.status === "trial" && <span className="tag trial">试用中</span>}
                   </td>
                   <td className="num">
                     {sub.currency} {sub.price.toString()}

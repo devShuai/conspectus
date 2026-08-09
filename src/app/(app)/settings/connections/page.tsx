@@ -22,6 +22,14 @@ const STATUS_LABEL: Record<string, string> = {
   disabled: "已停用",
 };
 
+/* 状态分级着色（#85）：active=ink 描边，disabled=muted，失败类=accent 填充 */
+const CONN_TAG: Record<string, string> = {
+  active: "ok",
+  disabled: "off",
+  auth_failed: "warn",
+  degraded: "warn",
+};
+
 export default async function ConnectionsPage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
@@ -70,7 +78,7 @@ export default async function ConnectionsPage() {
                   <td>{providerNames.get(conn.providerId) ?? conn.providerId}</td>
                   <td>{conn.displayName}</td>
                   <td>
-                    <span className={`tag${conn.status === "active" ? "" : " warn"}`}>
+                    <span className={`tag ${CONN_TAG[conn.status] ?? ""}`.trim()}>
                       {STATUS_LABEL[conn.status] ?? conn.status}
                     </span>
                     {conn.lastError && (

@@ -49,7 +49,7 @@ export default async function NotificationsSettingsPage() {
               <tr key={rule.id}>
                 <td>{rule.type}</td>
                 <td><code>{JSON.stringify(rule.config)}</code></td>
-                <td><span className="tag">{rule.enabled ? "启用" : "停用"}</span></td>
+                <td><span className={`tag ${rule.enabled ? "ok" : "off"}`}>{rule.enabled ? "启用" : "停用"}</span></td>
               </tr>
             ))}
             {rules.length === 0 && <tr><td colSpan={3} className="muted">暂无规则</td></tr>}
@@ -78,7 +78,7 @@ export default async function NotificationsSettingsPage() {
                 <td>{channel.mode}</td>
                 <td>{channel.type === "webhook" ? channel.destination : "账户邮箱"}</td>
                 <td>
-                  <span className={`tag${channel.enabled ? "" : " warn"}`}>
+                  <span className={`tag ${channel.enabled ? "ok" : "off"}`}>
                     {channel.enabled ? "启用" : "停用"}
                   </span>
                   {channel.type === "email" && channel.enabled && !user?.emailVerifiedAt && (

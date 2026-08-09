@@ -66,7 +66,7 @@ export default async function DevicesSettingsPage() {
                       ) : offline ? (
                         <span className="tag warn">离线</span>
                       ) : (
-                        <span className="tag">在线</span>
+                        <span className="tag ok">在线</span>
                       )}
                     </td>
                     <td>

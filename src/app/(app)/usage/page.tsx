@@ -14,6 +14,14 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/* 连接状态分级着色（#85）：active=ink 描边，disabled=muted，失败类=accent 填充 */
+const CONN_TAG: Record<string, string> = {
+  active: "ok",
+  disabled: "off",
+  auth_failed: "warn",
+  degraded: "warn",
+};
+
 export default async function UsagePage() {
   const session = await currentAppSession();
   if (!session) redirect("/login");
@@ -155,7 +163,7 @@ export default async function UsagePage() {
             {connections.map((conn) => (
               <tr key={conn.id}>
                 <td>{conn.displayName}</td>
-                <td><span className="tag">{conn.status}</span></td>
+                <td><span className={`tag ${CONN_TAG[conn.status] ?? ""}`.trim()}>{conn.status}</span></td>
                 <td className="date">{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
                 <td className="date">{conn.nextSyncAt ? formatDateTime(conn.nextSyncAt, timezone) : "—"}</td>
                 <td>{conn.lastError ?? "—"}</td>

@@ -44,7 +44,7 @@ export default async function MePage({
               <td>
                 {user.email ?? "—"}{" "}
                 {user.emailVerifiedAt ? (
-                  <span className="tag">已验证</span>
+                  <span className="tag ok">已验证</span>
                 ) : (
                   <span className="tag warn">未验证</span>
                 )}

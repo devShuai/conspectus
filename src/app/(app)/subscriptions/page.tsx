@@ -16,6 +16,15 @@ const STATUS_LABEL: Record<string, string> = {
   expired: "已到期",
 };
 
+/* 状态分级着色（#85）：trial=accent 浅填，active=ink 描边，其余 muted */
+const STATUS_TAG: Record<string, string> = {
+  trial: "trial",
+  active: "ok",
+  paused: "off",
+  canceled: "off",
+  expired: "off",
+};
+
 const CYCLE_LABEL: Record<string, string> = {
   weekly: "每周",
   monthly: "每月",
@@ -101,7 +110,9 @@ export default async function SubscriptionsPage() {
                   </td>
                   <td className="date">{formatDate(sub.nextBillingAt)}</td>
                   <td>
-                    <span className="tag">{STATUS_LABEL[sub.status] ?? sub.status}</span>
+                    <span className={`tag ${STATUS_TAG[sub.status] ?? ""}`.trim()}>
+                      {STATUS_LABEL[sub.status] ?? sub.status}
+                    </span>
                     {sub.status === "trial" && (
                       <span className="muted"> · 按转正价格估算</span>
                     )}

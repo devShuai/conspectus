@@ -247,6 +247,24 @@ a.stat-card {
   margin-left: 6px;
 }
 
+/* 状态分级（#85，只用 §12.1 token）：
+   active/在线/已验证=ink 描边；trial=accent 浅填；
+   paused/expired/已停用=muted；失败/离线/未验证/已撤销沿用 .tag.warn */
+.tag.ok {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--brand-ink) 45%, transparent);
+}
+
+.tag.trial {
+  background: color-mix(in srgb, var(--brand-accent) 14%, transparent);
+  color: var(--brand-accent);
+}
+
+.tag.off {
+  background: color-mix(in srgb, var(--brand-muted) 14%, transparent);
+  color: var(--brand-muted);
+}
+
 .usage-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
