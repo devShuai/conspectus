@@ -189,3 +189,112 @@ describe.skipIf(DISABLED)("purge retention additions (#121)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 });
+
+
+/**
+ * #57：M6 邮件导入的保留清理（§5.4）——过期 pending ImportDraft 置 expired
+ * （终态与未到期不动）；到达 rawRetainedUntil 的 InboundEmail.rawCipher 置空
+ * （行保留，未到期不动）。
+ */
+describe.skipIf(DISABLED)("purge inbound/import retention (#57)", () => {
+  const DAY = 86_400_000;
+
+  function draftRow(userId: string, expiresAt: Date, status: "pending" | "accepted" = "pending") {
+    return {
+      userId,
+      source: "email" as const,
+      payload: {
+        version: 1,
+        candidate: { name: "x", amount: "1", currency: "CNY", billedAt: "2026-08-01" },
+      },
+      confidence: 0.8,
+      status,
+      expiresAt,
+    };
+  }
+
+  it("expires overdue pending drafts only, never terminal or fresh ones", async () => {
+    const user = await makeUser();
+    const overduePending = await db.importDraft.create({
+      data: draftRow(user.id, new Date(Date.now() - 60_000)),
+    });
+    const freshPending = await db.importDraft.create({
+      data: draftRow(user.id, new Date(Date.now() + 7 * DAY)),
+    });
+    // 终态（accepted）即使超过 expiresAt 也不回改
+    const overdueAccepted = await db.importDraft.create({
+      data: draftRow(user.id, new Date(Date.now() - 60_000), "accepted"),
+    });
+
+    await runPurge();
+
+    expect(
+      (await db.importDraft.findUniqueOrThrow({ where: { id: overduePending.id } })).status,
+    ).toBe("expired");
+    expect(
+      (await db.importDraft.findUniqueOrThrow({ where: { id: freshPending.id } })).status,
+    ).toBe("pending");
+    expect(
+      (await db.importDraft.findUniqueOrThrow({ where: { id: overdueAccepted.id } })).status,
+    ).toBe("accepted");
+
+    // 幂等重跑：状态不再变化
+    await runPurge();
+    expect(
+      (await db.importDraft.findUniqueOrThrow({ where: { id: freshPending.id } })).status,
+    ).toBe("pending");
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("clears inbound rawCipher at rawRetainedUntil, keeps rows and fresh raw", async () => {
+    const user = await makeUser();
+    const base = {
+      userId: user.id,
+      fromAddr: "billing@example.test",
+      subject: "receipt",
+      receivedAt: new Date(),
+    };
+    const due = await db.inboundEmail.create({
+      data: {
+        ...base,
+        messageId: `<due-${randomUUID()}@e.test>`,
+        rawCipher: randomBytes(16),
+        rawRetainedUntil: new Date(Date.now() - 60_000),
+      },
+    });
+    const fresh = await db.inboundEmail.create({
+      data: {
+        ...base,
+        messageId: `<fresh-${randomUUID()}@e.test>`,
+        rawCipher: randomBytes(16),
+        rawRetainedUntil: new Date(Date.now() + 30 * DAY),
+      },
+    });
+    // 用户关闭保留：始终无原文（purge 不应对它做任何事）
+    const noRaw = await db.inboundEmail.create({
+      data: {
+        ...base,
+        messageId: `<noraw-${randomUUID()}@e.test>`,
+        rawCipher: null,
+        rawRetainedUntil: null,
+      },
+    });
+
+    await runPurge();
+
+    const dueAfter = await db.inboundEmail.findUniqueOrThrow({ where: { id: due.id } });
+    expect(dueAfter.rawCipher).toBeNull();
+    // 行保留：元数据与期限记录不动
+    expect(dueAfter.subject).toBe("receipt");
+    expect(dueAfter.rawRetainedUntil).not.toBeNull();
+    expect(
+      (await db.inboundEmail.findUniqueOrThrow({ where: { id: fresh.id } })).rawCipher,
+    ).not.toBeNull();
+    expect(
+      (await db.inboundEmail.findUniqueOrThrow({ where: { id: noRaw.id } })).rawCipher,
+    ).toBeNull();
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+});

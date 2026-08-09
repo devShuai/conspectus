@@ -92,6 +92,8 @@ model User {
   baseCurrency  String  @default("CNY") @db.Char(3)
   timezone      String  @default("Asia/Shanghai") @db.Text
   inboundAddress String? @unique @db.Text
+  /// 邮件原文保留开关（§7.5/§9）：false 时 InboundEmail.rawCipher 始终为空
+  inboundRetainRaw Boolean @default(true)
   status        UserStatus @default(active)
   statusReason  UserStatusReason?
   lastLoginAt   DateTime?
@@ -121,6 +123,8 @@ model User {
   notificationArmStates NotificationArmState[]
   priceChanges PriceChange[]
   collectorDevices CollectorDevice[]
+  inboundEmails InboundEmail[]
+  importDrafts ImportDraft[]
 
   @@index([status])
   @@index([certusLinkStatus])
@@ -289,6 +293,7 @@ model Subscription {
   billingRecords BillingRecord[]
   usageQuotas UsageQuota[]
   priceChanges PriceChange[]
+  importDrafts ImportDraft[]
   paymentMethod PaymentMethod? @relation(fields: [paymentMethodId], references: [id])
 
   @@index([userId, status])
@@ -810,4 +815,75 @@ model CollectorNonce {
   @@id([deviceId, nonce])
   @@index([seenAt])
   @@map("collector_nonces")
+}
+
+// ---------- M6 邮件导入（#57，design §6.2 / §7.5） ----------
+
+enum InboundEmailParseStatus {
+  pending
+  parsed
+  failed
+}
+
+enum ImportDraftSource {
+  email
+  csv
+}
+
+enum ImportDraftStatus {
+  pending
+  accepted
+  rejected
+  expired
+}
+
+/**
+ * 收件原始记录。唯一约束 (userId, messageId) 是入站幂等的底线：同一用户同一
+ * messageId 并发/重试只落一行。rawCipher 为 envelope 加密的原文（§9），默认
+ * 30 天后由 purge 置空（行保留）；用户关闭保留时 rawCipher/rawRetainedUntil
+ * 恒为空。DB CHECK：rawCipher 非空时 rawRetainedUntil 必填（手写迁移）。
+ */
+model InboundEmail {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  messageId  String @db.Text
+  fromAddr   String @db.Text
+  subject    String @db.Text
+  receivedAt DateTime @db.Timestamptz
+  parseStatus InboundEmailParseStatus @default(pending)
+  rawCipher  Bytes?
+  rawRetainedUntil DateTime? @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([rawRetainedUntil])
+  @@map("inbound_emails")
+}
+
+/**
+ * 导入草稿：未经用户确认不进入 BillingRecord/实付统计（§7.5 底线）。payload
+ * 为版本化 Zod schema（src/server/import/draft-payload.ts），不允许携带任意
+ * HTML/脚本字段。suggestedSubscriptionId 的同租户约束由手写触发器兜底
+ * （沿用 billing_record_tenant_check 模式）；引用订阅被删除时置空，草稿保留。
+ * 过期草稿由 purge 置 expired（行保留）。
+ */
+model ImportDraft {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  source     ImportDraftSource
+  payload    Json
+  confidence Decimal @db.Decimal(4, 3)
+  status     ImportDraftStatus @default(pending)
+  suggestedSubscriptionId String? @db.Uuid
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  expiresAt  DateTime @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  suggestedSubscription Subscription? @relation(fields: [suggestedSubscriptionId], references: [id], onDelete: SetNull)
+
+  @@index([userId, status])
+  @@index([expiresAt])
+  @@map("import_drafts")
 }

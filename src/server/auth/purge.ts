@@ -6,6 +6,8 @@ import { db } from "@/server/db";
  * raw cleared at 30 days (row kept while referenced by valueSnapshotId).
  * CollectorNonce: 10 分钟保留期（5 分钟签名窗 + 时钟/调度余量）；
  * NotificationDelivery/Digest: 终态（sent/failed/blocked/canceled）超 90 天清理。
+ * ImportDraft: 过期 pending 草稿置 expired（行保留，§7.5）；
+ * InboundEmail: 到达 rawRetainedUntil 的 rawCipher 置空（行保留，§5.4/§9）。
  */
 export async function runPurge(now: Date = new Date()): Promise<{
   sessions: number;
@@ -18,6 +20,8 @@ export async function runPurge(now: Date = new Date()): Promise<{
   notificationDigests: number;
   usageSnapshots: number;
   usageRawCleared: number;
+  importDraftsExpired: number;
+  inboundRawCleared: number;
 }> {
   const cutoff180 = new Date(now.getTime() - 180 * 86_400_000);
   const cutoff90 = new Date(now.getTime() - 90 * 86_400_000);
@@ -32,6 +36,8 @@ export async function runPurge(now: Date = new Date()): Promise<{
     passwordResetTokens,
     collectorNonces,
     notificationDeliveries,
+    importDraftsExpired,
+    inboundRawCleared,
   ] = await Promise.all([
     db.session.deleteMany({
       where: {
@@ -65,6 +71,16 @@ export async function runPurge(now: Date = new Date()): Promise<{
         status: { in: ["sent", "failed", "blocked", "canceled"] },
         updatedAt: { lt: cutoff90 },
       },
+    }),
+    // 过期 pending 草稿置 expired（§5.4）；行保留，终态不误改
+    db.importDraft.updateMany({
+      where: { status: "pending", expiresAt: { lt: now } },
+      data: { status: "expired" },
+    }),
+    // 到达保留期的邮件原文置空不删行（§5.4/§9：fromAddr/subject 等元数据保留）
+    db.inboundEmail.updateMany({
+      where: { rawCipher: { not: null }, rawRetainedUntil: { lte: now } },
+      data: { rawCipher: null },
     }),
   ]);
 
@@ -115,5 +131,7 @@ export async function runPurge(now: Date = new Date()): Promise<{
     notificationDigests: notificationDigests.count,
     usageSnapshots: usageSnapshots.count,
     usageRawCleared: usageRawCleared.count,
+    importDraftsExpired: importDraftsExpired.count,
+    inboundRawCleared: inboundRawCleared.count,
   };
 }
