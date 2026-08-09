@@ -247,8 +247,30 @@ describe.skipIf(DISABLED)("purge inbound/import retention (#57)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("clears inbound rawCipher at rawRetainedUntil, keeps rows and fresh raw", async () => {
+  it("keeps terminal drafts (rejected/expired) untouched even when overdue (#62)", async () => {
     const user = await makeUser();
+    const past = new Date(Date.now() - 60_000);
+    const rejected = await db.importDraft.create({
+      data: { ...draftRow(user.id, past), status: "rejected" },
+    });
+    const expired = await db.importDraft.create({
+      data: { ...draftRow(user.id, past), status: "expired" },
+    });
+
+    await runPurge();
+    await runPurge(); // 幂等重跑：终态永不回改
+
+    expect(
+      (await db.importDraft.findUniqueOrThrow({ where: { id: rejected.id } })).status,
+    ).toBe("rejected");
+    expect(
+      (await db.importDraft.findUniqueOrThrow({ where: { id: expired.id } })).status,
+    ).toBe("expired");
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("clears inbound rawCipher at rawRetainedUntil, keeps rows and fresh raw", async () => {    const user = await makeUser();
     const base = {
       userId: user.id,
       fromAddr: "billing@example.test",
@@ -294,6 +316,15 @@ describe.skipIf(DISABLED)("purge inbound/import retention (#57)", () => {
     expect(
       (await db.inboundEmail.findUniqueOrThrow({ where: { id: noRaw.id } })).rawCipher,
     ).toBeNull();
+
+    // 幂等重跑（#62）：已置空的不重复处理，未到期原文不受影响
+    await runPurge();
+    expect(
+      (await db.inboundEmail.findUniqueOrThrow({ where: { id: due.id } })).rawCipher,
+    ).toBeNull();
+    expect(
+      (await db.inboundEmail.findUniqueOrThrow({ where: { id: fresh.id } })).rawCipher,
+    ).not.toBeNull();
 
     await db.user.delete({ where: { id: user.id } });
   });

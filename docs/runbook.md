@@ -52,6 +52,14 @@ docker compose logs -f cron   # 观察任务执行
 - `npx wrangler tail`：应见 `inbound_forwarded` 事件。日志只含事件名/状态码/字节数——出现地址、主题或正文即为事故（§9 脱敏纪律）。
 - 真实测试邮件：向某用户的 `u-…@<域名>` 别名发信，DB 出现一行 `InboundEmail`（#60 起同请求内解析，`parseStatus` 落 `parsed`/`failed`）；同一封重投（平台重试）不产生新行——幂等由 `(userId, messageId)` 唯一约束兜底。
 - 解析成功率：按结构化日志 `inbound_email_parse_failed` 的 `reason` + `rule` 聚合——某规则 id 的 `template_drift` 突增即对应 vendor 模板改版，去 `src/server/import/rules/` 加新版本规则（只增不改）。日志只含事件/原因/规则 id，出现地址、主题或正文即为事故（§9 脱敏纪律）。
+- 确认流（#61）：解析产出的 `ImportDraft` 出现在 `/inbox`，用户校正字段后「接受并入账」（无匹配订阅时自动新建，账单 `source=email`、`externalRef=draft:<id>`）或「拒绝」；未确认草稿不进 `BillingRecord` 与实付统计。`ImportDraft` 只有 `pending` 可迁移，并发/重复操作由 CAS 兜底。
+
+### 原文与草稿生命周期（隐私，#62）
+
+- **原文**：`rawCipher` 以 §9 envelope 加密（`CREDENTIAL_ENC_KEYS`），落库时写 `rawRetainedUntil = 入站 + 30 天`；`/api/cron/purge` 每日把到期行的 `rawCipher` 置空——行与 `fromAddr`/`subject`/`receivedAt` 元数据保留，已产出的草稿不受影响。
+- **用户可控面**（设置 → 数据 → 邮件导入）：「关闭原文保留」后新邮件 `rawCipher` 恒空（仅主题可解析，通常凑不齐字段 → `parseStatus=failed`）；「立即清除已存原文」即时置空该用户全部 `rawCipher`。两条链路都有集成测试锁定（route/purge/E2E）。
+- **草稿**：确认窗 30 天（`expiresAt`），purge 把超窗 `pending` 置 `expired`；`accepted`/`rejected`/`expired` 均为终态，purge 幂等重跑不回改。
+- **脱敏证据**：服务端与 Worker 日志只含事件名、状态码、`reason`/`rule` id、`userId`——出现地址、主题、正文、别名或原文即为事故（§9）。fixture 与测试只使用 `*.test`/`example.test` 域名的合成邮件。
 
 ### secret 轮换（顺序不可颠倒）
 

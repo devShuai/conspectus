@@ -1022,7 +1022,7 @@ flowchart LR
 ```
 
 - **规则库**：`src/server/import/rules/*.ts`，每条规则声明 `matchFrom`（发件域）、`matchSubject`（正则）、`extract`（返回结构化结果）。规则是数据不是代码分支，可以逐步积累。
-- **绝不自动写正式数据**：所有解析结果一律先落 `ImportDraft`。`confidence >= 0.9` 的在 UI 上预选"接受"，但仍需用户一次点击。这是防止解析错误污染财务数据的底线。
+- **绝不自动写正式数据**：所有解析结果一律先落 `ImportDraft`。`confidence >= 0.9` 的草稿在 Inbox 一键接受；低于该阈值的标「需人工核对」，接受必须再经一次人工确认。任何草稿未确认前都不进 `BillingRecord` 与实付统计。这是防止解析错误污染财务数据的底线。
 - **确认即入账**：`acceptDraft` 把草稿写入 `BillingRecord(status=paid)` 时，走与 `recordPayment` 完全相同的投影路径（§7.3 汇率就绪规则），不另开换算分支。
 - **隐私**：默认只保留解析出的结构化字段；邮件原文最多保留 30 天用于排查，用户可在设置里关闭原文保留或立即清除。
 

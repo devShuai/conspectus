@@ -40,8 +40,11 @@ export class DraftError extends Error {
 
 type DraftStateRow = { status: string; expiresAt: Date };
 
-/** pending 且未过期才可操作；过期 pending（purge 尚未翻到 expired）同样拒绝。 */
+/** pending 且未过期才可操作；过期（含 purge 已翻牌的 expired 终态）同样拒绝。 */
 function assertActionable(draft: DraftStateRow, now: Date): void {
+  if (draft.status === "expired") {
+    throw new DraftError("expired", "草稿已过期，无法接受或编辑");
+  }
   if (draft.status !== "pending") {
     throw new DraftError("conflict", "草稿已处理，请刷新页面");
   }
