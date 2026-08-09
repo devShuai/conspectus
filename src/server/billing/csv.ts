@@ -8,6 +8,6 @@ export function csvEscape(value: unknown): string {
   return `"${text.replaceAll('"', '""')}"`;
 }
 
-export function csvLine(fields: unknown[]): string {
+export function csvLine(fields: readonly unknown[]): string {
   return fields.map(csvEscape).join(",") + "\r\n";
 }

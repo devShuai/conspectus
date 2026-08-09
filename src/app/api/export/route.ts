@@ -1,21 +1,19 @@
 import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
-import { db } from "@/server/db";
 import { SESSION_COOKIE_NAME } from "@/server/auth/cookies";
 import { dbSessionWriter } from "@/server/auth/db-flow";
-import { csvLine } from "@/server/billing/csv";
 import { consumeReauthTransaction } from "@/server/auth/reauth";
+import { csvLine } from "@/server/billing/csv";
+import { billingCsvChunks, subscriptionCsvChunks } from "@/server/billing/export";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-const PAGE_SIZE = 500;
-
 /**
  * Sensitive-operation export (design §7.1): requires a valid Session AND a
- * one-time ReauthTransaction bound to action="export". Streams CSV with BOM,
- * injection escaping, paged reads (no full in-memory load).
+ * one-time ReauthTransaction bound to action="export". Streams CSV with BOM
+ * and injection escaping; paged keyset reads keep memory flat (§7.7).
  */
 export async function GET(request: NextRequest): Promise<NextResponse> {
   const cookie = request.headers.get("cookie") ?? "";
@@ -54,59 +52,14 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid_entity" }, { status: 400 });
   }
 
-  const encoder = new TextEncoder();
-  let buffer = "\uFEFF"; // UTF-8 BOM for Excel
+  const chunks =
+    entity === "subscriptions"
+      ? subscriptionCsvChunks(session.userId)
+      : entity === "billing"
+        ? billingCsvChunks(session.userId)
+        : usageCsvChunks();
 
-  if (entity === "subscriptions") {
-    buffer += csvLine(["id", "name", "plan", "status", "price", "currency", "billing_cycle", "cycle_days", "anchor_day", "started_at", "next_billing_at", "auto_renew", "tags", "notes"]);
-    let cursor = 0;
-    for (;;) {
-      const rows = await db.subscription.findMany({
-        where: { userId: session.userId },
-        orderBy: { createdAt: "asc" },
-        skip: cursor,
-        take: PAGE_SIZE,
-      });
-      if (rows.length === 0) break;
-      for (const row of rows) {
-        buffer += csvLine([
-          row.id, row.name, row.planName ?? "", row.status,
-          row.price.toString(), row.currency, row.billingCycle,
-          row.cycleDays ?? "", row.anchorDay ?? "",
-          row.startedAt.toISOString().slice(0, 10),
-          row.nextBillingAt ? row.nextBillingAt.toISOString().slice(0, 10) : "",
-          row.autoRenew, row.tags.join(";"), row.notes ?? "",
-        ]);
-      }
-      cursor += rows.length;
-    }
-  } else if (entity === "billing") {
-    buffer += csvLine(["id", "subscription_id", "record_type", "amount", "currency", "billed_at", "status", "source", "occurrence_key"]);
-    let cursor = 0;
-    for (;;) {
-      const rows = await db.billingRecord.findMany({
-        where: { userId: session.userId },
-        orderBy: { billedAt: "asc" },
-        skip: cursor,
-        take: PAGE_SIZE,
-      });
-      if (rows.length === 0) break;
-      for (const row of rows) {
-        buffer += csvLine([
-          row.id, row.subscriptionId, row.recordType,
-          row.amount.toString(), row.currency,
-          row.billedAt.toISOString().slice(0, 10),
-          row.status, row.source, row.occurrenceKey ?? "",
-        ]);
-      }
-      cursor += rows.length;
-    }
-  } else {
-    // usage: placeholder for M3 (quota rows)
-    buffer += csvLine(["note", "usage export lands with M3"]);
-  }
-
-  return new NextResponse(encoder.encode(buffer), {
+  return new NextResponse(csvStream(chunks), {
     status: 200,
     headers: {
       "content-type": "text/csv; charset=utf-8",
@@ -116,4 +69,39 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   });
 }
 
-void db;
+async function* usageCsvChunks(): AsyncGenerator<string> {
+  // usage: placeholder for M3 (quota rows)
+  yield csvLine(["note", "usage export lands with M3"]);
+}
+
+/**
+ * Wrap CSV chunks into a byte stream. pull()-driven so the consumer's
+ * backpressure throttles DB pages; BOM goes out as the first chunk.
+ */
+function csvStream(chunks: AsyncGenerator<string>): ReadableStream<Uint8Array> {
+  const encoder = new TextEncoder();
+  const iterator = chunks[Symbol.asyncIterator]();
+  let bomPending = true;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (bomPending) {
+        bomPending = false;
+        controller.enqueue(encoder.encode("\uFEFF"));
+        return;
+      }
+      try {
+        const next = await iterator.next();
+        if (next.done) {
+          controller.close();
+          return;
+        }
+        controller.enqueue(encoder.encode(next.value));
+      } catch (cause) {
+        controller.error(cause);
+      }
+    },
+    async cancel(reason) {
+      await iterator.return?.(reason);
+    },
+  });
+}
