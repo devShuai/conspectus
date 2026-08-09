@@ -1,4 +1,4 @@
-import type { BillingCycle, SubscriptionStatus, VendorCategory } from "@prisma/client";
+import type { BillingCycle, Prisma, SubscriptionStatus, VendorCategory } from "@prisma/client";
 
 import { db } from "@/server/db";
 import {
@@ -110,9 +110,10 @@ function validateSubscriptionInput(
 async function assertVendorAllowed(
   userId: string,
   vendorId: string | null | undefined,
+  client: Prisma.TransactionClient | typeof db = db,
 ): Promise<void> {
   if (!vendorId) return;
-  const vendor = await db.vendor.findUnique({ where: { id: vendorId } });
+  const vendor = await client.vendor.findUnique({ where: { id: vendorId } });
   if (!vendor || (vendor.userId !== null && vendor.userId !== userId)) {
     throw new TenantError("forbidden", "vendor is not visible to this user");
   }
@@ -127,9 +128,10 @@ async function assertVendorAllowed(
 export async function createSubscription(
   userId: TenantUserId,
   input: CreateSubscriptionInput,
+  client: Prisma.TransactionClient | typeof db = db,
 ) {
   validateSubscriptionInput(input);
-  await assertVendorAllowed(userId, input.vendorId);
+  await assertVendorAllowed(userId, input.vendorId, client);
 
   const startedAt = new Date(
     Date.UTC(
@@ -146,7 +148,7 @@ export async function createSubscription(
     cycleDays: input.cycleDays,
   });
 
-  return db.subscription.create({
+  return client.subscription.create({
     data: {
       userId,
       vendorId: input.vendorId ?? null,

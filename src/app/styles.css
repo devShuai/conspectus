@@ -654,6 +654,34 @@ a.stat-card {
 
 /* ---------- empty states & loading skeleton (issue #80) ---------- */
 
+/* ---------- Inbox 草稿卡片（#61） ---------- */
+
+.draft-list {
+  display: grid;
+  gap: 12px;
+  margin-bottom: 32px;
+}
+
+.draft-card-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.draft-card-head .money {
+  margin-left: auto;
+  font-weight: 700;
+}
+
+.draft-meta {
+  margin: 4px 0;
+  font-size: 13px;
+  opacity: 0.75;
+  overflow-wrap: anywhere;
+}
+
 .empty-state {
   display: grid;
   justify-items: start;

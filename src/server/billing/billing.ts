@@ -236,8 +236,11 @@ export async function confirmPendingCharge(
  * - 汇率源不覆盖的币种必须自带固定汇率（投影 rateSource=manual），否则录入即
  *   拒绝 —— 绝不静默按 0 计入统计，也不留一条永远补不上的待换算投影（#106）
  * - 覆盖币种缺行时事务外按需抓取落表（best-effort，抓不到由 fx cron 补齐）
+ *
+ * 导出给自管事务的调用方（如 #61 acceptDraft）：在事务/用户锁之外先完成按需
+ * 抓取，再把 recordPaidCharge(input, tx) 接进自己的事务里。
  */
-async function prepareFxForPayment(
+export async function prepareFxForPayment(
   userId: string,
   currency: string,
   billedAt: Date,

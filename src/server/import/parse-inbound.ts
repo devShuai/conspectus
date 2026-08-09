@@ -85,8 +85,13 @@ export async function parseInboundEmail(
     return { status: "failed", reason: outcome.reason, matchedRule: outcome.matchedRule };
   }
 
-  // 落库前再过一次版本化 schema：引擎产物与 ImportDraft.payload 的唯一闸门
-  const payload = parseImportDraftPayload(outcome.payload);
+  // 落库前再过一次版本化 schema：引擎产物与 ImportDraft.payload 的唯一闸门。
+  // evidence.sourceMessageId 在此注入（#61 Inbox 据它关联来源邮件的收发时间）；
+  // 引擎本身不感知 messageId 列。
+  const payload = parseImportDraftPayload({
+    ...outcome.payload,
+    evidence: { ...(outcome.payload.evidence ?? {}), sourceMessageId: messageId },
+  });
 
   const subscriptions = await db.subscription.findMany({
     where: { userId },
