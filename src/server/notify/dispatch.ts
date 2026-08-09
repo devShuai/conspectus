@@ -2,6 +2,7 @@ import { db } from "@/server/db";
 import { identityGateOk } from "@/server/auth/identity-status";
 
 import { renderNotificationEmail } from "./email-templates";
+import { certusEmailPrecheck, toDeferredReason } from "./gates";
 import { postSafeWebhook } from "./webhook-safe";
 import { webhookHeaders } from "./webhook-signing";
 
@@ -80,15 +81,17 @@ export async function dispatchDueDeliveries(now: Date = new Date()): Promise<{
         where: { id: delivery.id, status: "sending", leaseToken },
         data:
           outcome.action === "cancel"
-            ? { status: "canceled", leaseUntil: null, leaseToken: null }
+            ? { status: "canceled", leaseUntil: null, leaseToken: null, deferredReason: null }
             : outcome.action === "block"
-              ? { status: "blocked", leaseUntil: null, leaseToken: null }
+              ? { status: "blocked", leaseUntil: null, leaseToken: null, deferredReason: null }
               : {
+                  // 可恢复门禁：结构化 deferredReason + nextAttemptAt，不烧 attempts（§7.6/#116）
                   status: "pending",
                   leaseUntil: null,
                   leaseToken: null,
                   nextAttemptAt: new Date(now.getTime() + DEFER_MS),
-                  lastError: outcome.reason,
+                  deferredReason: toDeferredReason(outcome.reason),
+                  lastError: null,
                 },
       });
       if (outcome.action === "cancel") canceled++;
@@ -101,7 +104,7 @@ export async function dispatchDueDeliveries(now: Date = new Date()): Promise<{
     if (ok) {
       await db.notificationDelivery.updateMany({
         where: { id: delivery.id, status: "sending", leaseToken },
-        data: { status: "sent", sentAt: now, leaseUntil: null, leaseToken: null },
+        data: { status: "sent", sentAt: now, leaseUntil: null, leaseToken: null, deferredReason: null },
       });
       sent++;
       continue;
@@ -111,7 +114,7 @@ export async function dispatchDueDeliveries(now: Date = new Date()): Promise<{
     if (attempts >= MAX_ATTEMPTS) {
       await db.notificationDelivery.updateMany({
         where: { id: delivery.id, status: "sending", leaseToken },
-        data: { status: "failed", leaseUntil: null, leaseToken: null },
+        data: { status: "failed", leaseUntil: null, leaseToken: null, deferredReason: null },
       });
       failed++;
       continue;
@@ -124,6 +127,7 @@ export async function dispatchDueDeliveries(now: Date = new Date()): Promise<{
         nextAttemptAt: new Date(now.getTime() + RETRY_STEPS_MS[attempts - 1]),
         leaseUntil: null,
         leaseToken: null,
+        deferredReason: null, // 真实外呼失败是重试，不是门禁延迟
         lastError: "delivery_failed",
       },
     });
@@ -185,6 +189,10 @@ async function preflight(
       return { action: "defer", reason: "email_snapshot_stale" };
     }
     if (!user.emailVerifiedAt) return { action: "block" };
+    // certus 来源证明：每个实际投递批次发信前逐批复核状态端点（§7.6/#116）
+    const precheck = await certusEmailPrecheck(user, now);
+    if (precheck.action === "defer") return { action: "defer", reason: precheck.reason };
+    if (precheck.action === "block") return { action: "block" };
   }
   return { action: "send" };
 }

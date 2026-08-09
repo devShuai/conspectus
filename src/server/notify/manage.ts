@@ -44,6 +44,13 @@ export function generateWebhookSecret(): string {
   return randomBytes(32).toString("base64url");
 }
 
+/** "HH:MM" → @db.Time 载体（1970-01-01 UTC）；非法格式抛 invalid_digest_time。 */
+export function parseDigestLocalTime(raw: string): Date {
+  const match = /^([01]\d|2[0-3]):([0-5]\d)$/.exec(raw.trim());
+  if (!match) throw new NotificationAdminError("invalid_digest_time");
+  return new Date(Date.UTC(1970, 0, 1, Number(match[1]), Number(match[2])));
+}
+
 function encryptSecret(secret: string): Uint8Array<ArrayBuffer> {
   return toStoredBytes(
     encryptCredential(Buffer.from(secret, "utf8"), loadCredentialKeyring()),
@@ -91,18 +98,23 @@ export async function saveChannel(input: {
   type: ChannelType;
   mode: ChannelMode;
   destination?: string;
+  digestLocalTime?: string;
   enabled?: boolean;
   now?: Date;
 }): Promise<{ channelId: string; enabled: boolean; verified: boolean | null }> {
   const destination = input.destination?.trim() || undefined;
+  const digestTimeRaw = input.digestLocalTime?.trim() || undefined;
   if (input.type === "webhook") {
     if (input.mode === "daily_digest") {
       throw new NotificationAdminError("webhook_digest_unsupported");
     }
     if (!destination) throw new NotificationAdminError("destination_required");
+    // §7.6：daily_digest / digestLocalTime 只允许 email
+    if (digestTimeRaw) throw new NotificationAdminError("digest_time_email_only");
   } else if (destination) {
     throw new NotificationAdminError("destination_webhook_only");
   }
+  const digestLocalTime = digestTimeRaw ? parseDigestLocalTime(digestTimeRaw) : null;
 
   if (!input.channelId) {
     if (input.type === "email") {
@@ -111,6 +123,7 @@ export async function saveChannel(input: {
           userId: input.userId,
           type: "email",
           mode: input.mode,
+          digestLocalTime,
           enabled: input.enabled ?? true,
         },
       });
@@ -177,6 +190,8 @@ export async function saveChannel(input: {
     data: {
       mode: input.mode,
       destination: destination ?? null,
+      // email 渠道：表单总是提交该字段（空 = 默认 09:00）；webhook 恒为 null
+      digestLocalTime: input.type === "email" ? digestLocalTime : null,
       secretCipher,
       enabled,
     },

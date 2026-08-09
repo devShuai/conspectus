@@ -31,18 +31,23 @@ function localDateParts(timezone: string, at: Date): { year: number; month: numb
 }
 
 /**
- * from 之后的下一个「本地 hour:00」（UTC instant）。
+ * from 之后的下一个「本地 hour:minute」（UTC instant）。
  * 时区解释只发生一次（§7.6）：夏令时切换与用户改时区都不回改已入队时间。
  */
-export function nextLocalTime(from: Date, timezone: string, hour: number): Date {
+export function nextLocalTime(
+  from: Date,
+  timezone: string,
+  hour: number,
+  minute: number = 0,
+): Date {
   const { year, month, day } = localDateParts(timezone, from);
   for (let add = 0; add <= 1; add++) {
     const localMidnightUtc = Date.UTC(year, month - 1, day + add);
-    const probe = new Date(localMidnightUtc + hour * 3_600_000);
+    const probe = new Date(localMidnightUtc + hour * 3_600_000 + minute * 60_000);
     const candidate = new Date(probe.getTime() - tzOffsetMs(timezone, probe));
     if (candidate > from) return candidate;
   }
-  // 理论不可达（两天内必有下一个 hour），保底 +24h
+  // 理论不可达（两天内必有下一个 hour:minute），保底 +24h
   return new Date(from.getTime() + 86_400_000);
 }
 

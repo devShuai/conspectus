@@ -181,7 +181,7 @@ describe.skipIf(DISABLED)("notification runtime semantics (#110)", () => {
     });
     expect(after.status).toBe("pending");
     expect(after.attempts).toBe(0);
-    expect(after.lastError).toBe("identity_status_stale");
+    expect(after.deferredReason).toBe("identity_status_stale"); // #116：结构化门禁原因
 
     await cleanup(user.id);
   });
@@ -212,7 +212,7 @@ describe.skipIf(DISABLED)("notification runtime semantics (#110)", () => {
       where: { eventId: event?.eventId, channelId: channel.id },
     });
     expect(delivery.status).toBe("pending");
-    expect(delivery.lastError).toBe("identity_suspended_certus");
+    expect(delivery.deferredReason).toBe("identity_suspended_certus"); // #116：结构化门禁原因
 
     await db.user.update({
       where: { id: user.id },

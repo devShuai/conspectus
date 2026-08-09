@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { db } from "@/server/db";
-import { fetchUserStatus } from "./certus-client-api";
+import { fetchUserStatus, type UserStatusEvidence } from "./certus-client-api";
 import type { AuthConfig } from "./config";
 import { loadStartupConfig } from "./startup-config";
 
@@ -136,7 +136,7 @@ export async function recheckIdentityStatus(
     const status = await fetchUserStatus(input.config, user.certusSub);
 
     if (status.httpStatus === 200) {
-      outcome = await applyStatus200(user, status.status, now);
+      outcome = await applyStatus200(user, status, now);
     } else if (status.httpStatus === 404) {
       outcome = await applyStatus404(user, now);
     } else {
@@ -179,14 +179,42 @@ export async function recheckIdentityStatus(
   return outcome;
 }
 
+/** 身份类可恢复门禁的 deferredReason 集合（§7.6/#116）：恢复事件只唤醒这些行。 */
+const IDENTITY_DEFER_REASONS = [
+  "identity_suspended_certus",
+  "identity_status_stale",
+  "identity_reauth_required",
+];
+
 async function applyStatus200(
-  user: { id: string; status: string; statusReason: string | null },
-  upstreamStatus: string | undefined,
+  user: {
+    id: string;
+    status: string;
+    statusReason: string | null;
+    emailVerificationSource: string | null;
+    emailSnapshotIssuedAt: Date | null;
+  },
+  evidence: UserStatusEvidence,
   now: Date,
 ): Promise<IdentityRecheckOutcome> {
-  if (upstreamStatus === "locked" || upstreamStatus === "disabled") {
+  // §6.2 邮箱快照启发式（#116）：任何 200 响应都先比较 updated_at —— 快照后
+  // 画像有变化且证明来源是 certus 时，清 certus 证明并写 emailSyncRequiredAt；
+  // local 来源的独立证明不得被 certus 状态清除（§7.6 both 模式）。
+  const emailSyncData =
+    evidence.updatedAt !== undefined &&
+    user.emailVerificationSource === "certus" &&
+    (user.emailSnapshotIssuedAt === null ||
+      evidence.updatedAt.getTime() > user.emailSnapshotIssuedAt.getTime())
+      ? {
+          emailSyncRequiredAt: now,
+          emailVerifiedAt: null,
+          emailVerificationSource: null,
+        }
+      : {};
+
+  if (evidence.status === "locked" || evidence.status === "disabled") {
     const reason =
-      upstreamStatus === "locked" ? "certus_locked" : "certus_disabled";
+      evidence.status === "locked" ? "certus_locked" : "certus_disabled";
     await db.$transaction(async (tx) => {
       await tx.user.update({
         where: { id: user.id },
@@ -198,6 +226,7 @@ async function applyStatus200(
           statusCheckFailureCount: 0,
           nextStatusCheckAt: null,
           lastStatusSyncError: null,
+          ...emailSyncData,
         },
       });
       await tx.session.deleteMany({ where: { userId: user.id } });
@@ -206,20 +235,38 @@ async function applyStatus200(
   }
 
   // active: clear only certus-caused suspension; never override admin.
-  await db.user.update({
-    where: { id: user.id },
-    data: {
-      status: user.status === "suspended" && user.statusReason === "admin" ? "suspended" : "active",
-      statusReason:
-        user.status === "suspended" && user.statusReason === "admin"
-          ? "admin"
-          : null,
-      certusLinkStatus: "active",
-      lastStatusSyncedAt: now,
-      statusCheckFailureCount: 0,
-      nextStatusCheckAt: null,
-      lastStatusSyncError: null,
-    },
+  await db.$transaction(async (tx) => {
+    await tx.user.update({
+      where: { id: user.id },
+      data: {
+        status: user.status === "suspended" && user.statusReason === "admin" ? "suspended" : "active",
+        statusReason:
+          user.status === "suspended" && user.statusReason === "admin"
+            ? "admin"
+            : null,
+        certusLinkStatus: "active",
+        lastStatusSyncedAt: now,
+        statusCheckFailureCount: 0,
+        nextStatusCheckAt: null,
+        lastStatusSyncError: null,
+        ...emailSyncData,
+      },
+    });
+    // §7.6 身份恢复联动（#116）：恢复事件把身份类门禁延迟的 Delivery/Digest
+    // 的 nextAttemptAt 推到 now，使其在下一轮 dispatch 立即可投
+    const wakeWhere = {
+      userId: user.id,
+      status: "pending" as const,
+      deferredReason: { in: IDENTITY_DEFER_REASONS },
+    };
+    await tx.notificationDelivery.updateMany({
+      where: wakeWhere,
+      data: { nextAttemptAt: now },
+    });
+    await tx.notificationDigest.updateMany({
+      where: wakeWhere,
+      data: { nextAttemptAt: now },
+    });
   });
   return { kind: "active" };
 }

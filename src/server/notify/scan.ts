@@ -92,8 +92,14 @@ export async function clearArm(input: {
 /** reminder（续费/试用）默认用户本地 09:00；操作性告警立即投递（§7.6）。 */
 type EventKind = "reminder" | "operational";
 
-/** 摘要时刻（本地小时）；#116 落地 digestLocalTime 后按渠道覆盖。 */
-const DIGEST_LOCAL_HOUR = 9;
+/** 摘要本地时刻：渠道 digestLocalTime（@db.Time，1970-01-01 载体的 UTC 时分），缺省 09:00。 */
+function digestClock(channel: { digestLocalTime: Date | null }): { hour: number; minute: number } {
+  if (!channel.digestLocalTime) return { hour: 9, minute: 0 };
+  return {
+    hour: channel.digestLocalTime.getUTCHours(),
+    minute: channel.digestLocalTime.getUTCMinutes(),
+  };
+}
 
 function scheduledFor(
   channel: { mode: string },
@@ -114,11 +120,11 @@ function scheduledFor(
  */
 async function upsertDigestBatch(
   tx: Tx,
-  input: { userId: string; channelId: string; timezone: string },
+  input: { userId: string; channelId: string; timezone: string; clock: { hour: number; minute: number } },
 ): Promise<{ id: string; scheduledAt: Date }> {
   let from = new Date();
   for (let roll = 0; roll < 10; roll++) {
-    const scheduledAt = nextLocalTime(from, input.timezone, DIGEST_LOCAL_HOUR);
+    const scheduledAt = nextLocalTime(from, input.timezone, input.clock.hour, input.clock.minute);
     const localDate = localToday(scheduledAt, input.timezone);
     const digest = await tx.notificationDigest.upsert({
       where: { channelId_localDate: { channelId: input.channelId, localDate } },
@@ -151,6 +157,7 @@ async function insertDeliveries(
         userId: input.userId,
         channelId: channel.id,
         timezone: input.timezone,
+        clock: digestClock(channel),
       });
       await tx.notificationDelivery.createMany({
         data: [

@@ -115,9 +115,13 @@ const KNOWN_ERRORS: Array<{
                       ? "规则类型不可修改"
                       : r === "subscription_not_found"
                         ? "订阅不存在"
-                        : r === "invalid_rule_config"
-                          ? "规则配置不合法，请检查阈值格式"
-                          : r,
+                        : r === "digest_time_email_only"
+                          ? "摘要时刻仅邮件渠道可设置"
+                          : r === "invalid_digest_time"
+                            ? "摘要时刻需为 HH:MM（24 小时制）"
+                            : r === "invalid_rule_config"
+                              ? "规则配置不合法，请检查阈值格式"
+                              : r,
   },
 ];
 
@@ -506,6 +510,11 @@ const NotificationChannelSchema = z.object({
     )
     .optional(),
   enabled: z.enum(["true", "false"]).optional(),
+  digestLocalTime: z
+    .string()
+    .trim()
+    .regex(/^$|^([01]\d|2[0-3]):[0-5]\d$/, "摘要时刻需为 HH:MM（24 小时制）")
+    .optional(),
 });
 
 export type SaveChannelResult = ActionResult<{
@@ -525,6 +534,7 @@ export async function saveNotificationChannel(
       mode: formData.get("mode") ?? "individual",
       destination: String(formData.get("destination") ?? "") || undefined,
       enabled: formData.get("enabled") ?? undefined,
+      digestLocalTime: String(formData.get("digestLocalTime") ?? "") || undefined,
     });
     if (!parsed.success) {
       return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
@@ -535,6 +545,7 @@ export async function saveNotificationChannel(
       type: parsed.data.type,
       mode: parsed.data.mode,
       destination: parsed.data.destination,
+      digestLocalTime: parsed.data.digestLocalTime,
       enabled:
         parsed.data.enabled === undefined ? undefined : parsed.data.enabled === "true",
     });

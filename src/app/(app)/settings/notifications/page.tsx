@@ -15,6 +15,14 @@ import {
 
 export const dynamic = "force-dynamic";
 
+/** @db.Time 载体（1970-01-01 UTC）→ "HH:MM"。 */
+function digestTimeLabel(value: Date | null): string | null {
+  if (!value) return null;
+  const hh = String(value.getUTCHours()).padStart(2, "0");
+  const mm = String(value.getUTCMinutes()).padStart(2, "0");
+  return `${hh}:${mm}`;
+}
+
 const RULE_TYPE_LABEL: Record<string, string> = {
   renewal_due: "续费提醒",
   trial_ending: "试用到期",
@@ -94,7 +102,11 @@ export default async function NotificationsSettingsPage() {
             {channels.map((channel) => (
               <tr key={channel.id}>
                 <td>{channel.type === "email" ? "邮件" : "Webhook"}</td>
-                <td>{channel.mode === "daily_digest" ? "每日摘要" : "逐条发送"}</td>
+                <td>
+                  {channel.mode === "daily_digest"
+                    ? `每日摘要 ${digestTimeLabel(channel.digestLocalTime) ?? "09:00"}`
+                    : "逐条发送"}
+                </td>
                 <td>
                   {channel.type === "webhook" ? (
                     <>
@@ -146,6 +158,7 @@ export default async function NotificationsSettingsPage() {
                         type: channel.type,
                         mode: channel.mode,
                         destination: channel.destination,
+                        digestLocalTime: digestTimeLabel(channel.digestLocalTime),
                       }}
                     />
                   </details>

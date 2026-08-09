@@ -98,7 +98,23 @@ export async function consumeEmailVerificationToken(
       data: {
         emailVerifiedAt: now,
         emailVerificationSource: "local",
+        // §7.6/#116：当前地址经本地独立路径重新证明，可清除 certus 快照同步标记
+        emailSyncRequiredAt: null,
       },
+    });
+    // 本地验证完成同样唤醒因快照陈旧延迟的投递
+    const wakeWhere = {
+      userId: row.userId,
+      status: "pending" as const,
+      deferredReason: "email_snapshot_stale",
+    };
+    await tx.notificationDelivery.updateMany({
+      where: wakeWhere,
+      data: { nextAttemptAt: now },
+    });
+    await tx.notificationDigest.updateMany({
+      where: wakeWhere,
+      data: { nextAttemptAt: now },
     });
   });
   return { userId: row.userId, email: row.email };

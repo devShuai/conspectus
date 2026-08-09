@@ -661,6 +661,7 @@ model NotificationChannel {
   userId     String @db.Uuid
   type       NotificationChannelType
   mode       NotificationChannelMode @default(individual)
+  digestLocalTime DateTime? @db.Time(6)
   destination String? @db.Text
   secretCipher Bytes?
   verifiedAt DateTime? @db.Timestamptz
@@ -704,6 +705,7 @@ model NotificationDelivery {
   digestId   String? @db.Uuid
   scheduledAt DateTime @db.Timestamptz
   status     NotificationDeliveryStatus @default(pending)
+  deferredReason String? @db.Text
   attempts   Int @default(0)
   nextAttemptAt DateTime? @db.Timestamptz
   leaseUntil DateTime? @db.Timestamptz
@@ -730,6 +732,7 @@ model NotificationDigest {
   localDate  DateTime @db.Date
   scheduledAt DateTime @db.Timestamptz
   status     NotificationDigestStatus @default(pending)
+  deferredReason String? @db.Text
   attempts   Int @default(0)
   nextAttemptAt DateTime? @db.Timestamptz
   leaseUntil DateTime? @db.Timestamptz

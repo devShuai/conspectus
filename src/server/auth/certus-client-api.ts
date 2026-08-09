@@ -20,11 +20,26 @@ export interface UserStatusEvidence {
   status?: string;
   emailVerified?: boolean;
   hasUpdatedAt: boolean;
+  /** updated_at 解析后的时刻（§6.2 快照比较用，#116）；缺省/无法解析为 undefined。 */
+  updatedAt?: Date;
   subjectFingerprint?: string;
   /** True when 404 body is empty or non-enumerating. */
   notFoundOpaque: boolean;
   retryAfter?: string | null;
   leakedProfileFields: string[];
+}
+
+/** updated_at：RFC3339 字符串，或 epoch 数字（>1e12 按毫秒、否则按秒）。 */
+function parseUpdatedAt(value: unknown): Date | undefined {
+  let date: Date;
+  if (typeof value === "number") {
+    date = new Date(value > 1e12 ? value : value * 1000);
+  } else if (typeof value === "string" && value.length > 0) {
+    date = new Date(value);
+  } else {
+    return undefined;
+  }
+  return Number.isNaN(date.getTime()) ? undefined : date;
 }
 
 export async function fetchOpenIdDiscovery(issuer: URL): Promise<{
@@ -152,6 +167,7 @@ export async function fetchUserStatus(
   );
   const sub = typeof body.sub === "string" ? body.sub : undefined;
   const status = typeof body.status === "string" ? body.status : undefined;
+  const updatedAtRaw = body.updated_at;
   return {
     httpStatus: response.status,
     active: status === "active",
@@ -159,8 +175,9 @@ export async function fetchUserStatus(
     emailVerified:
       typeof body.email_verified === "boolean" ? body.email_verified : undefined,
     hasUpdatedAt:
-      (typeof body.updated_at === "string" && body.updated_at.length > 0) ||
-      typeof body.updated_at === "number",
+      (typeof updatedAtRaw === "string" && updatedAtRaw.length > 0) ||
+      typeof updatedAtRaw === "number",
+    updatedAt: parseUpdatedAt(updatedAtRaw),
     subjectFingerprint: sub ? fingerprint(sub) : undefined,
     notFoundOpaque: false,
     retryAfter,

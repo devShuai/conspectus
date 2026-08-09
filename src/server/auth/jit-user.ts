@@ -118,6 +118,11 @@ export async function upsertCertusUser(
             : emailChanged
               ? null
               : existing.emailSnapshotIssuedAt,
+        // #116/§6.2：本次登录拿到新的 email + email_verified 成对快照才清除同步标记
+        emailSyncRequiredAt:
+          claims.emailVerified !== undefined
+            ? null
+            : existing.emailSyncRequiredAt,
       }
     : {};
   const updated = await tx.user.update({
@@ -139,5 +144,22 @@ export async function upsertCertusUser(
       ...emailData,
     },
   });
+  // §7.6 恢复联动（#116）：重新登录取得已验证的成对快照后，把因邮箱快照
+  // 陈旧而延迟的 Delivery/Digest 推回立即可投（subject 适用性由投递前复核再查）
+  if (hasEmailClaim && claims.emailVerified === true) {
+    const wakeWhere = {
+      userId: updated.id,
+      status: "pending" as const,
+      deferredReason: "email_snapshot_stale",
+    };
+    await tx.notificationDelivery.updateMany({
+      where: wakeWhere,
+      data: { nextAttemptAt: now },
+    });
+    await tx.notificationDigest.updateMany({
+      where: wakeWhere,
+      data: { nextAttemptAt: now },
+    });
+  }
   return { userId: updated.id, user: updated };
 }

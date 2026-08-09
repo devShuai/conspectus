@@ -241,7 +241,7 @@ describe.skipIf(DISABLED)("daily_digest pipeline (#91)", () => {
     });
     expect(after.status).toBe("pending");
     expect(after.attempts).toBe(0);
-    expect(after.lastError).toBe("email_snapshot_stale");
+    expect(after.deferredReason).toBe("email_snapshot_stale"); // #116：结构化门禁原因
     expect(after.nextAttemptAt).not.toBeNull();
     expect(after.nextAttemptAt!.getTime()).toBeGreaterThan(now.getTime());
     const child = await db.notificationDelivery.findFirstOrThrow({

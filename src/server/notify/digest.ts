@@ -1,5 +1,6 @@
 import { db } from "@/server/db";
 import { identityGateOk } from "@/server/auth/identity-status";
+import { certusEmailPrecheck, toDeferredReason } from "./gates";
 import { postSafeWebhook } from "./webhook-safe";
 import { webhookHeaders } from "./webhook-signing";
 
@@ -127,6 +128,18 @@ export async function dispatchDueDigests(now: Date = new Date()): Promise<{
         blocked++;
         continue;
       }
+      // certus 来源证明：发信前逐批成功复核状态端点（§7.6/#116），失败只延迟
+      const precheck = await certusEmailPrecheck(user, now);
+      if (precheck.action === "defer") {
+        await deferDigest(digest.id, leaseToken, precheck.reason, now);
+        deferred++;
+        continue;
+      }
+      if (precheck.action === "block") {
+        await finalizeDigest(digest.id, leaseToken, "blocked", now);
+        blocked++;
+        continue;
+      }
     }
 
     const ok = await attemptDigestSend(digest, channel, children, now);
@@ -150,6 +163,7 @@ export async function dispatchDueDigests(now: Date = new Date()): Promise<{
         nextAttemptAt: new Date(now.getTime() + DIGEST_RETRY_MS[attempts - 1]),
         leaseUntil: null,
         leaseToken: null,
+        deferredReason: null, // 真实外呼失败是重试，不是门禁延迟
         lastError: "delivery_failed",
       },
     });
@@ -173,7 +187,8 @@ async function deferDigest(
       leaseUntil: null,
       leaseToken: null,
       nextAttemptAt: new Date(now.getTime() + DEFER_MS),
-      lastError: reason,
+      deferredReason: toDeferredReason(reason), // 结构化门禁原因（#116）
+      lastError: null,
     },
   });
 }
@@ -204,6 +219,7 @@ async function finalizeDigest(
         sentAt: status === "sent" ? now : null,
         leaseUntil: null,
         leaseToken: null,
+        deferredReason: null,
       },
     });
   });

@@ -45,6 +45,7 @@ export interface ChannelEditTarget {
   type: "email" | "webhook";
   mode: string;
   destination: string | null;
+  digestLocalTime: string | null;
 }
 
 export interface RuleEditTarget {
@@ -112,6 +113,17 @@ export function ChannelForm({
           保存时会做一次带签名的验证性 POST；未通过则渠道保存为「停用」，修复后重新保存即可再验证
         </p>
         <FieldError state={state} name="destination" />
+      </div>
+      <div className="field">
+        <label htmlFor="channel-digestLocalTime">摘要时刻（仅邮件每日摘要）</label>
+        <input
+          id="channel-digestLocalTime"
+          name="digestLocalTime"
+          type="time"
+          defaultValue={channel?.digestLocalTime ?? ""}
+        />
+        <p className="field-hint">留空默认本地 09:00；时区按账户时区在入队时解释一次</p>
+        <FieldError state={state} name="digestLocalTime" />
       </div>
       <div className="actions">
         <button className="button" type="submit" disabled={pending}>
