@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { loadAuthConfig } from "@/server/auth/config";
-import { identityGateOk } from "./identity-status";
+import { loadAuthConfig, type AuthConfig } from "@/server/auth/config";
+import { identityGateOk, identityStatusLimits, recheckIdentityStatus } from "./identity-status";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 
@@ -73,6 +73,48 @@ describe.skipIf(DISABLED)("identity gate", () => {
     expect(staleResult.reason).toBe("identity_status_stale");
     await db.user.delete({ where: { id: fresh.id } });
     await db.user.delete({ where: { id: stale.id } });
+  });
+
+  it("honors the maxStaleMs passed in from startup config (#121-7)", async () => {
+    // 2 小时未复核：maxStale=3h 放行，maxStale=1h 阻断——上界不再硬编码
+    const user = await db.user.create({
+      data: {
+        certusSub: uniqueSub("gate-cfg"),
+        certusLinkStatus: "active",
+        lastStatusSyncedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
+      },
+    });
+    expect((await identityGateOk(user.id, new Date(), 3 * 60 * 60 * 1000)).ok).toBe(true);
+    const denied = await identityGateOk(user.id, new Date(), 60 * 60 * 1000);
+    expect(denied.ok).toBe(false);
+    expect(denied.reason).toBe("identity_status_stale");
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("recheck skips healthy users fresh within TTL without hitting certus (#121-7)", async () => {
+    const user = await db.user.create({
+      data: {
+        certusSub: uniqueSub("gate-ttl"),
+        certusLinkStatus: "active",
+        lastStatusSyncedAt: new Date(),
+      },
+    });
+    // config 传空对象也不会被触碰：TTL 内直接 skip，不发任何上游请求
+    const outcome = await recheckIdentityStatus({
+      userId: user.id,
+      certusSub: user.certusSub!,
+      config: {} as AuthConfig,
+      ttlMs: 60 * 60 * 1000,
+    });
+    expect(outcome).toEqual({ kind: "skip", reason: "fresh_within_ttl" });
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("identityStatusLimits falls back to parsed startup config values", () => {
+    // .env.local 未设置 IDENTITY_STATUS_* 时即代码默认值（§12.4）
+    const limits = identityStatusLimits();
+    expect(limits.ttlMs).toBeGreaterThan(0);
+    expect(limits.maxStaleMs).toBeGreaterThan(limits.ttlMs);
   });
 });
 

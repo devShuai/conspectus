@@ -28,6 +28,17 @@ export const LOCAL_AUTH_RATE_LIMITS = {
   resetTarget: { scope: "auth:password-reset:target", limit: 5, windowMs: 30 * 60_000 },
 } as const;
 
+/**
+ * 采集上报端点（§9：采集上报按 IP + 用户维度限流）。上报频率是每设备
+ * 每小时一次，限额远高于正常使用、远低于可造成压力的量级。
+ */
+export const COLLECT_RATE_LIMITS = {
+  usageIp: { scope: "collect:usage:ip", limit: 300, windowMs: 10 * 60_000 },
+  usageUser: { scope: "collect:usage:user", limit: 120, windowMs: 10 * 60_000 },
+  devicesIp: { scope: "collect:devices:ip", limit: 60, windowMs: 10 * 60_000 },
+  devicesUser: { scope: "collect:devices:user", limit: 20, windowMs: 10 * 60_000 },
+} as const;
+
 function fingerprint(scope: string, key: string): string {
   return createHash("sha256").update(scope).update("\0").update(key).digest("hex");
 }

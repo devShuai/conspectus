@@ -3,9 +3,34 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/server/db";
 import { fetchUserStatus } from "./certus-client-api";
 import type { AuthConfig } from "./config";
+import { loadStartupConfig } from "./startup-config";
 
+/** 默认值；实际生效值由 loadStartupConfig 解析 IDENTITY_STATUS_TTL/MAX_STALE 得到（§12.4）。 */
 export const IDENTITY_STATUS_TTL_MS = 60 * 60 * 1000;
 export const IDENTITY_STATUS_MAX_STALE_MS = 24 * 60 * 60 * 1000;
+
+let cachedLimits: { ttlMs: number; maxStaleMs: number } | null = null;
+
+/**
+ * 生效的 TTL / MAX_STALE：来自启动配置（环境变量），配置不可用时回退默认
+ * 常量（单测无完整 env 也能跑）。进程内缓存一次，env 运行期不热更新。
+ */
+export function identityStatusLimits(): { ttlMs: number; maxStaleMs: number } {
+  if (cachedLimits) return cachedLimits;
+  try {
+    const startup = loadStartupConfig();
+    cachedLimits = {
+      ttlMs: startup.identityStatusTtlMs,
+      maxStaleMs: startup.identityStatusMaxStaleMs,
+    };
+  } catch {
+    cachedLimits = {
+      ttlMs: IDENTITY_STATUS_TTL_MS,
+      maxStaleMs: IDENTITY_STATUS_MAX_STALE_MS,
+    };
+  }
+  return cachedLimits;
+}
 
 const BACKOFF_STEPS_MS = [5 * 60 * 1000, 15 * 60 * 1000, 60 * 60 * 1000];
 const MAX_BACKOFF_INDEX = BACKOFF_STEPS_MS.length - 1;
@@ -22,6 +47,8 @@ export interface IdentityRecheckInput {
   certusSub: string;
   config: AuthConfig;
   now?: Date;
+  /** 覆盖每用户复核最小间隔；默认取启动配置 IDENTITY_STATUS_TTL */
+  ttlMs?: number;
 }
 
 /**
@@ -82,6 +109,19 @@ export async function recheckIdentityStatus(
   const user = await db.user.findUnique({ where: { id: input.userId } });
   if (!user || user.certusSub !== input.certusSub || user.certusSub === null) {
     return { kind: "skip", reason: "user_not_certus" };
+  }
+
+  // TTL 是每用户复核的最小间隔（§6.2/§12.4）：健康用户在 TTL 内已有权威
+  // 观测就不再打 certus。失败重试（failureCount>0）与 certus 锁定用户的
+  // 恢复复核由 nextStatusCheckAt 调度，不受 TTL 抑制。
+  const ttlMs = input.ttlMs ?? identityStatusLimits().ttlMs;
+  if (
+    user.statusCheckFailureCount === 0 &&
+    user.status === "active" &&
+    user.lastStatusSyncedAt !== null &&
+    now.getTime() - user.lastStatusSyncedAt.getTime() < ttlMs
+  ) {
+    return { kind: "skip", reason: "fresh_within_ttl" };
   }
 
   const lease = await db.$transaction(async (tx) =>
@@ -210,6 +250,7 @@ async function applyStatus404(
 export async function identityGateOk(
   userId: string,
   now: Date = new Date(),
+  maxStaleMs: number = identityStatusLimits().maxStaleMs,
 ): Promise<{ ok: boolean; reason?: string }> {
   const user = await db.user.findUnique({ where: { id: userId } });
   if (!user) return { ok: false, reason: "user_not_found" };
@@ -224,7 +265,7 @@ export async function identityGateOk(
   }
   if (user.certusSub !== null) {
     const ageMs = now.getTime() - user.lastStatusSyncedAt!.getTime();
-    if (ageMs > IDENTITY_STATUS_MAX_STALE_MS) {
+    if (ageMs > maxStaleMs) {
       return { ok: false, reason: "identity_status_stale" };
     }
   }

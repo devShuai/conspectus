@@ -1,6 +1,12 @@
 import { NextResponse } from "next/server";
 
 import { db } from "@/server/db";
+import { clientIpFromRequest } from "@/server/auth/http-security";
+import {
+  COLLECT_RATE_LIMITS,
+  consumeRateLimits,
+  withRateLimitKey,
+} from "@/server/auth/rate-limit";
 import { introspectCliToken } from "@/server/usage/device-auth";
 import { verifyDeviceSignature } from "@/server/usage/device-signature";
 import { ingestReadings } from "@/server/usage/ingest";
@@ -27,6 +33,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   const user = await db.user.findUnique({ where: { certusSub: sub } });
   if (!user || user.status === "suspended") {
     return NextResponse.json({ error: "forbidden" }, { status: 403 });
+  }
+
+  // §9：采集上报端点按 IP + 用户限流（计数在 PostgreSQL，多实例共享）
+  const rateLimit = await consumeRateLimits([
+    withRateLimitKey(COLLECT_RATE_LIMITS.usageIp, clientIpFromRequest(request)),
+    withRateLimitKey(COLLECT_RATE_LIMITS.usageUser, user.id),
+  ]);
+  if (!rateLimit.allowed) {
+    return NextResponse.json(
+      { error: "rate_limited" },
+      { status: 429, headers: { "Retry-After": String(rateLimit.retryAfterSeconds) } },
+    );
   }
 
   const bodyText = await request.text();
