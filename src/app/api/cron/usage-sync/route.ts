@@ -3,6 +3,8 @@ import { NextResponse } from "next/server";
 import { resetDueQuotaCycles } from "@/server/usage/cycle-reset";
 import { syncDueConnections } from "@/server/usage/sync";
 
+import { cronJson } from "../json";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -20,14 +22,14 @@ export async function GET(request: Request): Promise<NextResponse> {
   const authorization = request.headers.get("authorization");
   const secret = process.env.CRON_SECRET;
   if (!secret || authorization !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return cronJson({ error: "unauthorized" }, { status: 401 });
   }
 
   const url = new URL(request.url);
   const shard = Number(url.searchParams.get("shard") ?? 0);
   const of = Number(url.searchParams.get("of") ?? 1);
   if (!Number.isInteger(shard) || !Number.isInteger(of) || of < 1 || shard < 0 || shard >= of) {
-    return NextResponse.json({ error: "invalid_shard" }, { status: 400 });
+    return cronJson({ error: "invalid_shard" }, { status: 400 });
   }
 
   const result = await syncDueConnections(new Date(), {
@@ -36,5 +38,5 @@ export async function GET(request: Request): Promise<NextResponse> {
   });
   // 纯手工 quota 的周期重置（§7.4 / #117）：到期归零、UsageCycleSummary 固化
   const { closed } = await resetDueQuotaCycles(new Date());
-  return NextResponse.json({ ok: true, shard, of, cyclesClosed: closed, ...result });
+  return cronJson({ ok: true, shard, of, cyclesClosed: closed, ...result });
 }

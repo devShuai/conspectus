@@ -9,6 +9,8 @@ import {
   saveFxRate,
 } from "@/server/billing/fx";
 
+import { cronJson } from "../json";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -20,7 +22,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const authorization = request.headers.get("authorization");
   const secret = process.env.CRON_SECRET;
   if (!secret || authorization !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return cronJson({ error: "unauthorized" }, { status: 401 });
   }
 
   const today = new Date();
@@ -53,7 +55,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     backfilled += await backfillMissingProjections(user.id, user.baseCurrency);
   }
 
-  return NextResponse.json({ ok: true, fetched, stale, backfilled });
+  return cronJson({ ok: true, fetched, stale, backfilled });
 }
 
 /** 回退标记自身失败（DB 抖动等）不放大为整批失败。 */

@@ -4,6 +4,8 @@ import { db } from "@/server/db";
 import { loadAuthConfig } from "@/server/auth/config";
 import { recheckIdentityStatus } from "@/server/auth/identity-status";
 
+import { cronJson } from "../json";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
@@ -14,7 +16,7 @@ export async function GET(request: Request): Promise<NextResponse> {
   const authorization = request.headers.get("authorization");
   const secret = process.env.CRON_SECRET;
   if (!secret || authorization !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return cronJson({ error: "unauthorized" }, { status: 401 });
   }
 
   const config = loadAuthConfig();
@@ -57,7 +59,7 @@ export async function GET(request: Request): Promise<NextResponse> {
     Array.from({ length: Math.min(CONCURRENCY, due.length || 1) }, () => worker()),
   );
 
-  return NextResponse.json({
+  return cronJson({
     ok: true,
     scanned: due.length,
     outcomes,

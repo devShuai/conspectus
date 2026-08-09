@@ -2,6 +2,8 @@ import { NextResponse } from "next/server";
 
 import { processRebaseJobs } from "@/server/billing/rebase-worker";
 
+import { cronJson } from "../json";
+
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
@@ -13,16 +15,16 @@ export async function GET(request: Request): Promise<NextResponse> {
   const authorization = request.headers.get("authorization");
   const secret = process.env.CRON_SECRET;
   if (!secret || authorization !== `Bearer ${secret}`) {
-    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    return cronJson({ error: "unauthorized" }, { status: 401 });
   }
 
   const url = new URL(request.url);
   const shard = Number(url.searchParams.get("shard") ?? 0);
   const of = Number(url.searchParams.get("of") ?? 1);
   if (of < 1 || shard < 0 || shard >= of) {
-    return NextResponse.json({ error: "invalid_shard" }, { status: 400 });
+    return cronJson({ error: "invalid_shard" }, { status: 400 });
   }
 
   const results = await processRebaseJobs(shard, of);
-  return NextResponse.json({ ok: true, results });
+  return cronJson({ ok: true, results });
 }

@@ -207,6 +207,21 @@ model RateLimitCounter {
   @@map("rate_limit_counters")
 }
 
+/**
+ * /api/ready?deep=1 的跨实例缓存与 single-flight（§5.4）：结果按
+ * issuer+client_id 缓存 60s，lease 保证同一时刻全集群最多一个 worker
+ * 请求 certus；body 内含上游 configRevision，供运维比对两次探测。
+ */
+model DeepReadyProbe {
+  cacheKey   String    @id @db.Text
+  body       Json
+  checkedAt  DateTime  @db.Timestamptz
+  leaseUntil DateTime? @db.Timestamptz
+  leaseToken String?   @db.Uuid
+
+  @@map("deep_ready_probes")
+}
+
 model ReauthTransaction {
   id        String   @id @default(uuid()) @db.Uuid
   userId    String   @db.Uuid
