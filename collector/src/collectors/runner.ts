@@ -1,8 +1,8 @@
 import { writeFileSync, readFileSync, existsSync, mkdirSync } from "node:fs";
 import { resolve } from "node:path";
-import { homedir } from "node:os";
 
 import type { LocalCollector, UsageReading } from "../types.js";
+import { configDir } from "../paths.js";
 import { listCollectors } from "./registry.js";
 
 export interface CollectorRunStatus {
@@ -14,27 +14,43 @@ export interface CollectorRunStatus {
   lastErrorAt?: string;
 }
 
-const STATE_FILE = resolve(homedir(), ".conspectus", "collector-state.json");
+function stateFile(): string {
+  return resolve(configDir(), "collector-state.json");
+}
 
 /**
  * Run all collectors with independent failure isolation and persisted status.
  * One collector failing never blocks the others; unavailable collectors are
  * reported (never faked with stale numbers).
+ *
+ * Each collector only receives its own bindings (matched by collectorId) and
+ * is skipped entirely when the manifest has nothing for it — no wasted
+ * probes against tools this user doesn't track.
  */
 export async function runAllCollectors(
-  bindings: Array<{ bindingId: string; metric: string; kind: string; unit: string }>,
+  bindings: Array<{
+    bindingId: string;
+    collectorId: string;
+    metric: string;
+    kind: string;
+    unit: string;
+  }>,
 ): Promise<{ readings: UsageReading[]; statuses: CollectorRunStatus[] }> {
   const statuses: CollectorRunStatus[] = [];
   const readings: UsageReading[] = [];
   const now = new Date().toISOString();
 
   for (const collector of listCollectors()) {
+    const own = bindings
+      .filter((b) => b.collectorId === collector.id)
+      .map(({ bindingId, metric, kind, unit }) => ({ bindingId, metric, kind, unit }));
+    if (own.length === 0) continue;
     try {
       if (!(await collector.detect())) {
         statuses.push({ id: collector.id, ok: false, error: "not_installed", readings: 0 });
         continue;
       }
-      const collected = await collector.collect({ bindings });
+      const collected = await collector.collect({ bindings: own });
       readings.push(...collected);
       const status: CollectorRunStatus = {
         id: collector.id,
@@ -65,14 +81,14 @@ export function persistState(statuses: CollectorRunStatus[]): void {
     if (status.ok) state[status.id] = { lastSuccessAt: status.lastSuccessAt ?? null, lastErrorAt: null };
     else state[status.id] = { lastSuccessAt: null, lastErrorAt: status.lastErrorAt ?? null };
   }
-  mkdirSync(resolve(homedir(), ".conspectus"), { recursive: true });
-  writeFileSync(STATE_FILE, JSON.stringify(state, null, 2), { mode: 0o600 });
+  mkdirSync(configDir(), { recursive: true });
+  writeFileSync(stateFile(), JSON.stringify(state, null, 2), { mode: 0o600 });
 }
 
 export function readState(): Record<string, { lastSuccessAt: string | null; lastErrorAt: string | null }> {
-  if (!existsSync(STATE_FILE)) return {};
+  if (!existsSync(stateFile())) return {};
   try {
-    return JSON.parse(readFileSync(STATE_FILE, "utf8"));
+    return JSON.parse(readFileSync(stateFile(), "utf8"));
   } catch {
     return {};
   }

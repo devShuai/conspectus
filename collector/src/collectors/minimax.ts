@@ -47,12 +47,29 @@ export const minimaxCollector: LocalCollector = {
     if (body.status !== 1 && body.status !== 2 && body.status !== 3) {
       throw new Error("unavailable: unexpected status code");
     }
+    // Count variant: community implementations read the usage fields as
+    // REMAINING, so used = total - remaining. Percentage variant: the plan
+    // only exposes usage_percentage (used %), normalized like the Claude
+    // status-line collector to a 0–100 quota (design §7.4 要求两种变体兼容).
     const total = toNumber(body.total);
-    const remaining = toNumber(body.remaining ?? body.current_interval_usage_count ?? body.weekly_usage_count);
-    if (total === null || remaining === null) {
+    const remaining = toNumber(
+      body.remaining ?? body.current_interval_usage_count ?? body.weekly_usage_count,
+    );
+    const percentage = toNumber(body.usage_percentage);
+    let used: string;
+    let limit: string;
+    let unit: string;
+    if (total !== null && remaining !== null) {
+      used = String(Math.max(0, total - remaining));
+      limit = String(total);
+      unit = "req";
+    } else if (percentage !== null && percentage >= 0 && percentage <= 100) {
+      used = String(percentage);
+      limit = "100";
+      unit = "%";
+    } else {
       throw new Error("unavailable: schema drift");
     }
-    const used = Math.max(0, total - remaining);
     const now = new Date().toISOString();
     const out: UsageReading[] = [];
     for (const metric of ["minimax:5h", "minimax:weekly"]) {
@@ -62,9 +79,9 @@ export const minimaxCollector: LocalCollector = {
         bindingId: binding.bindingId,
         kind: "quota",
         metric,
-        unit: "req",
-        usedValue: String(used),
-        limitValue: String(total),
+        unit,
+        usedValue: used,
+        limitValue: limit,
         periodEnd: body.reset_at,
         capturedAt: now,
       });

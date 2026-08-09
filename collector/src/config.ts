@@ -1,12 +1,19 @@
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
-import { resolve, dirname } from "node:path";
-import { homedir } from "node:os";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, unlinkSync } from "node:fs";
+import { resolve } from "node:path";
 
 import type { StoredToken } from "./types.js";
+import { configDir } from "./paths.js";
+import { secretStore } from "./keychain.js";
 
-const CONFIG_DIR = resolve(homedir(), ".conspectus");
-const TOKEN_FILE = resolve(CONFIG_DIR, "tokens.json");
-const CONFIG_FILE = resolve(CONFIG_DIR, "config.json");
+const TOKENS_ACCOUNT = "auth-tokens";
+
+function tokenFile(): string {
+  return resolve(configDir(), "tokens.json");
+}
+
+function configFile(): string {
+  return resolve(configDir(), "config.json");
+}
 
 export interface CliConfig {
   serverUrl: string;
@@ -15,12 +22,12 @@ export interface CliConfig {
 }
 
 export function loadCliConfig(): CliConfig {
-  if (!existsSync(CONFIG_FILE)) {
+  if (!existsSync(configFile())) {
     throw new Error(
-      `config not found at ${CONFIG_FILE}; run 'conspectus-collect configure'`,
+      `config not found at ${configFile()}; run 'conspectus-collect configure'`,
     );
   }
-  const raw = JSON.parse(readFileSync(CONFIG_FILE, "utf8")) as Record<string, unknown>;
+  const raw = JSON.parse(readFileSync(configFile(), "utf8")) as Record<string, unknown>;
   const config: CliConfig = {
     serverUrl: String(raw.serverUrl ?? ""),
     issuer: String(raw.issuer ?? ""),
@@ -33,29 +40,49 @@ export function loadCliConfig(): CliConfig {
 }
 
 export function saveCliConfig(config: CliConfig): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2), { mode: 0o600 });
+  mkdirSync(configDir(), { recursive: true });
+  writeFileSync(configFile(), JSON.stringify(config, null, 2), { mode: 0o600 });
 }
 
-/** Store tokens in the user config dir (keychain integration is a follow-up). */
-export function storeTokens(tokens: StoredToken): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(TOKEN_FILE, JSON.stringify(tokens, null, 2), { mode: 0o600 });
+/** Non-secret config file location, exposed for --diagnose. */
+export function cliConfigPath(): string {
+  return configFile();
 }
 
-export function loadTokens(): StoredToken | null {
-  if (!existsSync(TOKEN_FILE)) return null;
+/**
+ * Tokens live in the OS keychain (design §7.4). A legacy plaintext
+ * tokens.json (pre-keychain releases) is migrated on first read and deleted.
+ */
+export async function storeTokens(tokens: StoredToken): Promise<void> {
+  const store = await secretStore();
+  await store.set(TOKENS_ACCOUNT, JSON.stringify(tokens));
+  if (existsSync(tokenFile())) unlinkSync(tokenFile());
+}
+
+export async function loadTokens(): Promise<StoredToken | null> {
+  const store = await secretStore();
+  const raw = await store.get(TOKENS_ACCOUNT);
+  if (raw) {
+    try {
+      return JSON.parse(raw) as StoredToken;
+    } catch {
+      return null;
+    }
+  }
+  if (!existsSync(tokenFile())) return null;
   try {
-    return JSON.parse(readFileSync(TOKEN_FILE, "utf8")) as StoredToken;
+    const legacy = JSON.parse(readFileSync(tokenFile(), "utf8")) as StoredToken;
+    if (!legacy.accessToken) return null;
+    await store.set(TOKENS_ACCOUNT, JSON.stringify(legacy));
+    unlinkSync(tokenFile());
+    return legacy;
   } catch {
     return null;
   }
 }
 
-export function clearTokens(): void {
-  if (existsSync(TOKEN_FILE)) {
-    writeFileSync(TOKEN_FILE, "{}", { mode: 0o600 });
-  }
+export async function clearTokens(): Promise<void> {
+  const store = await secretStore();
+  await store.delete(TOKENS_ACCOUNT);
+  if (existsSync(tokenFile())) unlinkSync(tokenFile());
 }
-
-void dirname;

@@ -3,9 +3,24 @@ import { stdin as input, stdout as output } from "node:process";
 
 import { loadCliConfig, saveCliConfig } from "./config.js";
 import { deviceLogin, logout } from "./auth.js";
-import { fetchManifest, reportReadings } from "./report.js";
+import {
+  fetchManifest,
+  flushReportBuffer,
+  isRetryableReportError,
+  reportReadings,
+  type ReportResult,
+} from "./report.js";
+import { enqueueFailedBatch, bufferStats } from "./buffer.js";
+import { runDiagnose } from "./diagnose.js";
 import { listCollectors } from "./collectors/registry.js";
-import type { DeviceLoginResult, UsageReading } from "./types.js";
+import { runAllCollectors } from "./collectors/runner.js";
+import type { DeviceLoginResult } from "./types.js";
+
+// Side-effect imports: each collector registers itself on load. Without these
+// the registry stays empty and `run` would never collect anything.
+import "./collectors/claude.js";
+import "./collectors/codex.js";
+import "./collectors/minimax.js";
 
 async function ask(label: string): Promise<string> {
   const rl = createInterface({ input, output });
@@ -16,6 +31,10 @@ async function ask(label: string): Promise<string> {
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  if (command === "diagnose" || args.includes("--diagnose")) {
+    console.log(JSON.stringify(await runDiagnose(), null, 2));
+    return;
+  }
   switch (command) {
     case "configure": {
       const serverUrl = await ask("conspectus server URL (e.g. https://c.example.com): ");
@@ -51,7 +70,7 @@ async function main(): Promise<void> {
       return;
     }
     case "logout": {
-      logout();
+      await logout();
       console.log("已登出");
       return;
     }
@@ -59,49 +78,67 @@ async function main(): Promise<void> {
       const config = loadCliConfig();
       const dryRun = args.includes("--dry-run");
       const manifest = await fetchManifest(config);
-      const readings: UsageReading[] = [];
-      const collectorErrors: Array<{ collectorId: string; error: string }> = [];
-      for (const collector of listCollectors()) {
-        try {
-          if (!(await collector.detect())) continue;
-          // CLI 只为 manifest 中匹配本 collector 的 binding 生成读数（#88）；
-          // metric/kind/unit 一律来自 binding，不猜、不硬编码
-          const bindings = manifest
-            .filter((b) => b.collectorId === collector.id)
-            .map((b) => ({
-              bindingId: b.bindingId,
-              metric: b.metric,
-              kind: b.kind,
-              unit: b.unit,
-            }));
-          if (bindings.length === 0) continue;
-          const collected = await collector.collect({ bindings });
-          readings.push(...collected);
-        } catch (cause) {
-          // 单个 collector 失败不中断其余（§7.4 采集器独立性）
-          collectorErrors.push({
-            collectorId: collector.id,
-            error: cause instanceof Error ? cause.message : String(cause),
-          });
-        }
-      }
+      // CLI 只为 manifest 中匹配本 collector 的 binding 生成读数（#88）；
+      // metric/kind/unit 一律来自 binding，不猜、不硬编码
+      const bindings = manifest.map((b) => ({
+        bindingId: b.bindingId,
+        collectorId: b.collectorId,
+        metric: b.metric,
+        kind: b.kind,
+        unit: b.unit,
+      }));
+      // 单个 collector 失败不中断其余（§7.4 采集器独立性），状态落盘供 diagnose
+      const { readings, statuses } = await runAllCollectors(bindings);
+      const collectorErrors = statuses
+        .filter((s) => !s.ok && s.error && s.error !== "not_installed")
+        .map((s) => ({ collectorId: s.id, error: s.error ?? "unknown" }));
       if (dryRun) {
-        console.log(JSON.stringify({ dryRun: true, readings, collectorErrors }, null, 2));
-        return;
-      }
-      if (readings.length === 0) {
         console.log(
-          JSON.stringify({ accepted: 0, rejected: [], note: "无可上报读数", collectorErrors }),
+          JSON.stringify(
+            { dryRun: true, readings, collectorErrors, buffered: bufferStats() },
+            null,
+            2,
+          ),
         );
         return;
       }
-      const result = await reportReadings(config, readings);
-      console.log(JSON.stringify({ ...result, collectorErrors }));
+
+      // 先重放上次失败的批次（最旧的在前），再上报本轮读数
+      const flush = await flushReportBuffer(config);
+      let result: ReportResult = { accepted: 0, rejected: [] };
+      let bufferedNow = 0;
+      if (readings.length > 0) {
+        if (flush.retryableFailure) {
+          // 服务器仍不可达：本轮直接入缓冲，不再重复打网络
+          enqueueFailedBatch(readings, flush.error ?? "server unreachable");
+          bufferedNow = readings.length;
+        } else {
+          try {
+            result = await reportReadings(config, readings);
+          } catch (cause) {
+            if (!isRetryableReportError(cause)) throw cause;
+            enqueueFailedBatch(
+              readings,
+              cause instanceof Error ? cause.message : String(cause),
+            );
+            bufferedNow = readings.length;
+          }
+        }
+      }
+      console.log(
+        JSON.stringify({
+          ...result,
+          collectorErrors,
+          replayed: { flushed: flush.flushed, dropped: flush.dropped },
+          bufferedNow,
+          bufferDepth: bufferStats().readings,
+        }),
+      );
       return;
     }
     default:
       console.log(
-        "Usage: conspectus-collect <configure|login|status|run [--dry-run]|logout>",
+        "Usage: conspectus-collect <configure|login|status|run [--dry-run]|diagnose|logout>",
       );
       process.exitCode = 1;
   }

@@ -8,13 +8,17 @@ import {
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { hostname, platform } from "node:os";
 import { resolve } from "node:path";
-import { homedir } from "node:os";
 
 import type { CliConfig } from "./config.js";
 import { validAccessToken } from "./auth.js";
+import { configDir } from "./paths.js";
+import { secretStore } from "./keychain.js";
 
-const CONFIG_DIR = resolve(homedir(), ".conspectus");
-const DEVICE_FILE = resolve(CONFIG_DIR, "device.json");
+const DEVICE_KEY_ACCOUNT = "device-key";
+
+function deviceFile(): string {
+  return resolve(configDir(), "device.json");
+}
 
 interface StoredDevice {
   deviceId: string;
@@ -37,20 +41,33 @@ function signedMessage(input: {
   return [input.method, input.path, input.timestamp, input.nonce, bodyHash].join("\n");
 }
 
-function loadDevice(): StoredDevice | null {
-  if (!existsSync(DEVICE_FILE)) return null;
+/**
+ * device.json holds only the non-secret deviceId; the signing private key
+ * lives in the OS keychain (design §7.4). A legacy device.json that still
+ * embeds privateKey is migrated on first read.
+ */
+async function loadDevice(): Promise<StoredDevice | null> {
+  if (!existsSync(deviceFile())) return null;
   try {
-    const raw = JSON.parse(readFileSync(DEVICE_FILE, "utf8")) as Partial<StoredDevice>;
-    if (!raw.deviceId || !raw.privateKey) return null;
-    return { deviceId: raw.deviceId, privateKey: raw.privateKey };
+    const raw = JSON.parse(readFileSync(deviceFile(), "utf8")) as Partial<StoredDevice>;
+    if (!raw.deviceId) return null;
+    const store = await secretStore();
+    if (raw.privateKey) {
+      await store.set(DEVICE_KEY_ACCOUNT, raw.privateKey);
+      writeDeviceFile(raw.deviceId);
+      return { deviceId: raw.deviceId, privateKey: raw.privateKey };
+    }
+    const privateKey = await store.get(DEVICE_KEY_ACCOUNT);
+    if (!privateKey) return null;
+    return { deviceId: raw.deviceId, privateKey };
   } catch {
     return null;
   }
 }
 
-function storeDevice(device: StoredDevice): void {
-  mkdirSync(CONFIG_DIR, { recursive: true });
-  writeFileSync(DEVICE_FILE, JSON.stringify(device, null, 2), { mode: 0o600 });
+function writeDeviceFile(deviceId: string): void {
+  mkdirSync(configDir(), { recursive: true });
+  writeFileSync(deviceFile(), JSON.stringify({ deviceId }, null, 2), { mode: 0o600 });
 }
 
 /**
@@ -60,7 +77,7 @@ function storeDevice(device: StoredDevice): void {
  * half, which is what makes single-device revocation possible.
  */
 export async function ensureDevice(config: CliConfig): Promise<StoredDevice> {
-  const existing = loadDevice();
+  const existing = await loadDevice();
   if (existing) return existing;
 
   const { publicKey, privateKey } = generateKeyPairSync("ed25519");
@@ -85,11 +102,13 @@ export async function ensureDevice(config: CliConfig): Promise<StoredDevice> {
   const body = (await response.json()) as { deviceId?: string };
   if (!body.deviceId) throw new Error("device registration returned no deviceId");
 
+  const store = await secretStore();
   const device: StoredDevice = {
     deviceId: body.deviceId,
     privateKey: privateKey.export({ format: "der", type: "pkcs8" }).toString("base64"),
   };
-  storeDevice(device);
+  await store.set(DEVICE_KEY_ACCOUNT, device.privateKey);
+  writeDeviceFile(device.deviceId);
   return device;
 }
 

@@ -4,7 +4,8 @@ import type { CliConfig } from "./config.js";
 import { storeTokens, loadTokens, clearTokens } from "./config.js";
 import type { DeviceLoginResult, StoredToken } from "./types.js";
 
-const SCOPES = "openid usage:write";
+/** design §7.4 client registration: allowed_scopes openid, profile, usage:write */
+export const SCOPES = "openid profile usage:write";
 
 /**
  * certus Device Authorization Grant (RFC 8628) with usage:write only —
@@ -41,7 +42,7 @@ export async function deviceLogin(
     refreshToken: typeof tokens.refresh_token === "string" ? tokens.refresh_token : "",
     expiresAt: Date.now() + (Number(tokens.expires_in) ?? 3600) * 1000,
   };
-  storeTokens(stored);
+  await storeTokens(stored);
   return stored;
 }
 
@@ -64,12 +65,12 @@ export async function refreshAccessToken(
         : tokens.refreshToken,
     expiresAt: Date.now() + (Number(refreshed.expires_in) ?? 3600) * 1000,
   };
-  storeTokens(updated);
+  await storeTokens(updated);
   return updated;
 }
 
 export async function validAccessToken(config: CliConfig): Promise<StoredToken> {
-  let tokens = loadTokens();
+  let tokens = await loadTokens();
   if (!tokens?.accessToken) throw new Error("not logged in; run 'login'");
   if (Date.now() >= tokens.expiresAt - 30_000) {
     tokens = await refreshAccessToken(config, tokens);
@@ -77,8 +78,8 @@ export async function validAccessToken(config: CliConfig): Promise<StoredToken> 
   return tokens;
 }
 
-export function logout(): void {
-  clearTokens();
+export async function logout(): Promise<void> {
+  await clearTokens();
 }
 
 async function providerConfig(config: CliConfig): Promise<oidc.Configuration> {

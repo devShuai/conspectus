@@ -66,5 +66,8 @@ conspectus-collect logout           # 清除本机令牌（卸载前）
 ## 隐私与降级
 
 - 只上报 `bindingId` 与数值读数；`--dry-run` 可先核对完整载荷。
+- 认证 token 与设备签名私钥存操作系统钥匙串（macOS Keychain / Windows Credential Manager / libsecret `secret-tool`）；平台工具不可用时回退到 `~/.conspectus/secrets.json`（0600）。旧版明文 `tokens.json` / `device.json` 内嵌私钥会在首次读取时自动迁入钥匙串并删除。
+- 上报失败（网络 / 5xx / 429）的批次持久化在 `~/.conspectus/pending-reports.json`（0600），下次 `run` 先重放；保留 7 天、最多 50 批 / 1000 条读数，超出丢弃最旧批次。
+- `conspectus-collect diagnose` 本机打印诊断（配置来源、token/私钥存在性不打印值、连通性、缓冲深度、collector 最近成败），输出不含任何密钥。
 - 任一 collector 失败独立记录 `unavailable`，绝不用旧数字冒充新数据。
 - 手动录入（通道 C）始终可用，不依赖 CLI。
