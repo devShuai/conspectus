@@ -12,6 +12,7 @@ import {
   sessionCookieOptions,
 } from "@/server/auth/cookies";
 import { authModeGate } from "@/server/auth/auth-mode";
+import { logCallbackFailure } from "@/server/auth/callback-log";
 import { loadAuthConfig } from "@/server/auth/config";
 import { dbSessionWriter } from "@/server/auth/db-flow";
 import {
@@ -59,6 +60,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
       return response;
     } catch (error) {
       const code = error instanceof ReauthFlowError ? error.code : "unexpected_error";
+      logCallbackFailure("reauth", code, error);
       const target = new URL("/auth/error", config.appUrl);
       target.searchParams.set("code", `reauth_${code}`);
       const response = NextResponse.redirect(target, 303);
@@ -105,6 +107,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
         error instanceof BindFlowError || error instanceof BindError
           ? error.code
           : "unexpected_error";
+      logCallbackFailure("bind", code, error);
       const target = new URL("/auth/error", config.appUrl);
       target.searchParams.set("code", `bind_${code}`);
       const response = NextResponse.redirect(target, 303);
@@ -145,16 +148,7 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
     return response;
   } catch (error) {
     const code = error instanceof OIDCFlowError ? error.code : "unexpected_error";
-    if (process.env.NODE_ENV !== "production") {
-      const cause = error instanceof Error ? error.cause : undefined;
-      const detail =
-        cause instanceof Error
-          ? cause.name
-          : error instanceof Error
-            ? error.name
-            : typeof error;
-      console.error("[auth/callback]", code, detail);
-    }
+    logCallbackFailure("login", code, error);
     const target = new URL("/auth/error", config.appUrl);
     target.searchParams.set("code", code);
     const response = NextResponse.redirect(target, 303);

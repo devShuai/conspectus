@@ -16,16 +16,20 @@ import {
   readOIDCTransaction,
 } from "./transaction";
 
-export type ReauthFlowErrorCode =
-  | "invalid_context"
-  | "invalid_transaction"
-  | "invalid_callback_url"
-  | "invalid_state"
-  | "invalid_claims"
-  | "authorization_response_rejected"
-  | "identity_mismatch"
-  | "stale_auth_time"
-  | "verify_failed";
+/** 运行时可枚举，见 OIDC_FLOW_ERROR_CODES（#123）。 */
+export const REAUTH_FLOW_ERROR_CODES = [
+  "invalid_context",
+  "invalid_transaction",
+  "invalid_callback_url",
+  "invalid_state",
+  "invalid_claims",
+  "authorization_response_rejected",
+  "identity_mismatch",
+  "stale_auth_time",
+  "verify_failed",
+] as const;
+
+export type ReauthFlowErrorCode = (typeof REAUTH_FLOW_ERROR_CODES)[number];
 
 export class ReauthFlowError extends Error {
   constructor(

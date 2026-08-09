@@ -2,13 +2,19 @@ import { db } from "@/server/db";
 import { hashPassword } from "./password";
 import type { AuthConfig } from "./config";
 
+/** 运行时可枚举，见 OIDC_FLOW_ERROR_CODES（#123）。回调同样给它们加 `bind_` 前缀。 */
+export const BIND_ERROR_CODES = [
+  "sub_in_use",
+  "already_bound",
+  "last_auth_method",
+  "invalid_input",
+] as const;
+
+export type BindErrorCode = (typeof BIND_ERROR_CODES)[number];
+
 export class BindError extends Error {
   constructor(
-    public readonly code:
-      | "sub_in_use"
-      | "already_bound"
-      | "last_auth_method"
-      | "invalid_input",
+    public readonly code: BindErrorCode,
     message: string,
   ) {
     super(message);

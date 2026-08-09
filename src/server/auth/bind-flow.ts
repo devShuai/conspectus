@@ -6,13 +6,17 @@ import { loadAuthConfig, type AuthConfig } from "./config";
 import { certusOIDCProvider, type OIDCProvider } from "./provider";
 import { createOIDCTransaction, readOIDCTransaction } from "./transaction";
 
-export type BindFlowErrorCode =
-  | "invalid_transaction"
-  | "invalid_state"
-  | "invalid_claims"
-  | "authorization_response_rejected"
-  | "not_a_bind_transaction"
-  | "session_mismatch";
+/** 运行时可枚举，见 OIDC_FLOW_ERROR_CODES（#123）。 */
+export const BIND_FLOW_ERROR_CODES = [
+  "invalid_transaction",
+  "invalid_state",
+  "invalid_claims",
+  "authorization_response_rejected",
+  "not_a_bind_transaction",
+  "session_mismatch",
+] as const;
+
+export type BindFlowErrorCode = (typeof BIND_FLOW_ERROR_CODES)[number];
 
 export class BindFlowError extends Error {
   constructor(

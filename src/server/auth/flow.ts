@@ -13,13 +13,17 @@ import {
   readOIDCTransaction,
 } from "./transaction";
 
-export type OIDCFlowErrorCode =
-  | "invalid_callback_url"
-  | "invalid_state"
-  | "invalid_transaction"
-  | "invalid_claims"
-  | "authorization_response_rejected"
-  | "account_suspended";
+/** 运行时可枚举，错误页的文案表靠它做覆盖断言，避免两张表再次漂移（#123）。 */
+export const OIDC_FLOW_ERROR_CODES = [
+  "invalid_callback_url",
+  "invalid_state",
+  "invalid_transaction",
+  "invalid_claims",
+  "authorization_response_rejected",
+  "account_suspended",
+] as const;
+
+export type OIDCFlowErrorCode = (typeof OIDC_FLOW_ERROR_CODES)[number];
 
 export class OIDCFlowError extends Error {
   constructor(
