@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import ActionButton from "@/components/action-button";
@@ -61,10 +62,21 @@ export default async function ConnectionsPage() {
       </p>
 
       {connections.length === 0 ? (
+        /* 连接为空时整页只有一屏，指向本页 #add 的 CTA 既不滚动也不改变任何东西，
+           点上去像坏了；没有订阅时锚点落地处更是死路（表单不渲染）。所以按前置
+           条件给出真正的下一步：先建订阅，否则表单就在下方，不需要锚点。 */
         <EmptyState
           title="暂无连接"
-          hint="连接服务商后，用量与余额会自动同步，不用再手动录入。"
-          action={{ href: "/settings/connections#add", label: "添加连接" }}
+          hint={
+            subscriptions.length === 0
+              ? "连接要归属到一条订阅，所以先建订阅，再回来连接服务商。"
+              : "连接服务商后，用量与余额会自动同步，不用再手动录入。在下方填写即可。"
+          }
+          action={
+            subscriptions.length === 0
+              ? { href: "/subscriptions/new", label: "新建订阅" }
+              : undefined
+          }
         />
       ) : (
         <div className="table-wrap">
@@ -107,7 +119,9 @@ export default async function ConnectionsPage() {
 
       <h2 id="add">添加连接</h2>
       {subscriptions.length === 0 ? (
-        <p className="muted">先创建一条订阅，连接才能归属到它。</p>
+        <p className="muted">
+          先<Link href="/subscriptions/new">创建一条订阅</Link>，连接才能归属到它。
+        </p>
       ) : (
         <ConnectProviderForm
           action={connectProviderAction}
