@@ -1,7 +1,7 @@
 # conspectus 设计审阅意见
 
-> 针对 [design.md](./design.md) v0.1–**v0.5.1**（2026-08-07）  
-> 最近复审：2026-08-07 · 状态：**十二轮审计 2×P1 已落地（§9m），无遗留 P0**；certus [#2](https://github.com/devShuai/certus/issues/2)/[#3](https://github.com/devShuai/certus/issues/3)/[#4](https://github.com/devShuai/certus/issues/4) 的功能实现仍成立；两项上游需求已登记 [certus#9](https://github.com/devShuai/certus/issues/9)（capabilities 端点，**M0 认证侧 go/no-go 闸门**）与 [certus#10](https://github.com/devShuai/certus/issues/10)（状态端点返回 `email`）；**M0 可启动，M1–M4 以 v0.5.1 与 §12.3 为实现基线**
+> 针对 [design.md](./design.md) v0.1–**v0.6.0**（2026-08-08）  
+> 最近复审：2026-08-08 · 状态：**M0–M6 已全部交付**，全部 issue 已关闭。v0.6.0 完成了一次实现↔文档对账（见 §9n）：补齐 10 条端点、3 张表、`certusSubLegacy` 与 `ReauthTransaction.targetPath` 两个安全修复字段、collector 侧环境变量；上游 [certus#9](https://github.com/devShuai/certus/issues/9) 已实现关闭，仅 [certus#10](https://github.com/devShuai/certus/issues/10) 仍 open
 
 本文把设计评审结论落成可追踪条目，便于改设计稿、拆任务与验收对照。  
 **不替代** `design.md`。§3–§6 为**首轮问题台账（历史）**；落地状态以 §9–§9m 与修订记录为准。
@@ -564,10 +564,28 @@ design 仅写 Vitest + Playwright，建议在 M1 起把下列**写成验收清�
 | 共同点 | 两项都源自**跨仓边界**：一个是需求没落到上游的 issue 列表，一个是把上游字段语义想得比实际窄。§9i 的教训（以上游代码为准）仍在持续产生价值。 |
 | 建议 | 上游两项需求已开出 [certus#9](https://github.com/devShuai/certus/issues/9) / [certus#10](https://github.com/devShuai/certus/issues/10)，建议合并成一次 certus 迭代交付，避免 M0 分两次等待。 |
 
+## 9n. 实现↔文档对账（v0.5.1 → v0.6.0 · 2026-08-08）
+
+全部 issue 关闭后，对照实现逐项核对文档。**没有反向缺口**——文档写到的都实现了；偏差是单向的，实现跑在文档前面。
+
+| 类别 | 差异 | v0.6.0 处理 |
+| --- | --- | --- |
+| **项目状态** | README 写「M0 风险验证阶段……尚无可发布的业务功能」，§10 里程碑全为未来时，本文件状态行写「M0 可启动」——而 M1–M6 早已落地（100 测试文件 / 622 用例）。**任何人打开仓库都会以为业务代码还没开始写。** | README 状态与里程碑表改为已交付；§10 标注全部交付；本文件状态行重写 |
+| **§8 API 表** | 缺 10 条已实现路由。其中三条是实质契约而非补充端点：`cron/notification-digest`（第 10 个定时任务，而 §5.2 只画了 9 个）、`collect/revoke`（§7.4「单设备撤销」的唯一入口）、`auth/bind/start`（#96 账号接管修复的核心路径） | 10 条全部补入；§5.2 任务图补 C10；§5.3 目录树补 bind / reauth / delete-account / billing / settings |
+| **§6.2 数据表** | 缺 `EmailVerificationToken`、`RateLimitCounter`、`DeepReadyProbe`。其中 `RateLimitCounter` 尤其不该缺：§9 明确要求「限流状态放 PostgreSQL 而非进程内存」，实现照做了，表却没进模型 | 三张表补入，各注明存在理由 |
+| **安全修复字段** | `User.certusSubLegacy`（#94）与 `ReauthTransaction.targetPath`（#98）完全没进文档。二者都是**安全修复的载体**，无人知道为何存在时极易在「清理无用字段」中被删——后果分别是老账号变孤儿、开放重定向复活 | 两列补入并写明删除后果 |
+| **§12.4 环境变量** | 服务端缺 `CERTUS_CLI_CLIENT_ID`、`TEST_DATABASE_URL`；collector 侧 5 个变量一个都没有 | 全部补入，collector 单列一段 |
+| **上游依赖** | certus#9 已实现关闭，文档仍写成「M0 认证侧 go/no-go 闸门」「尚不存在」 | R11b 与待确认 #7 改写；上游需求收敛为仅剩 #10 |
+
+### 未解决
+
+- **一个偶发失败的测试**：四次全量跑里失败 1 次，随后三次全绿，与 #66 评论里记录的连接池争用同型，**仍未定位**。flaky 会训练人忽略红灯，建议单独立项从 Prisma 连接池大小与测试并行度入手。
+
 ## 10. 修订记录
 
 | 日期 | 说明 |
 | --- | --- |
+| 2026-08-08 | **实现↔文档对账** design.md v0.5.1 → **v0.6.0**：补 10 条端点 / 3 张表 / 2 个安全修复字段 / collector 环境变量；项目状态与上游依赖描述改为与实现一致。详见 §9n。 |
 | 2026-08-07 | 初稿：基于 design.md v0.1 全文审阅 |
 | 2026-08-07 | P0 全部 8 项落地 design.md v0.1.1：M1/M1b 拆分（P1）、local×CLI 限制（A1 选①）、`autoRenew=false` 只提醒不建 pending（D5）、年化口径与 trial 迁移（D1/D3）、字段变更同步重算（D2）、UsageQuota 唯一约束（D4）、G 表重排加阶段列（C1/C9）、`src/` 布局锁定（C2/C3）。一并落地的 P1/P2：C5/C6/C7/C8、D7/D8/D9/D10、A2/A3/A5、T1/T2/T3/T5、U1、P2（示例默认 certus）、§4.5 验收清单（design §12.3）。**落地时的增量修正**（本审阅未列出、改稿时发现）：`UsageSnapshot.usedValue` 存不了 balance 读数 → 改为语义随 kind 的 `value` 列；快照幂等约束在可空 `deviceId` 上失效（NULL 互不相等）→ 改表达式唯一索引；年化公式 `365/天数` 对 monthly 会得出 ×12.17 → 月/季/年改整数倍；§5.1 node-cron 与 §5.4 cron 容器矛盾 → 统一后者；登录时序图与客户端注册的 `login_methods` 矛盾 → 已对齐；风险表 R7/R8 间空行断表 → 已修。P3（README 能力分层）已在 README 落地。**未落地**：P5/待确认项转 issue、T4（i18n 一节）、A4（注销冷却文案）、D6（tags GIN）。 |
 | 2026-08-07 | 二轮复审问题全部落地 design.md v0.2：认证改为 `openid-client` + 自有 Session；Cron 改 GET；增加 occurrence 幂等、租户组合外键、Binding/设备签名、BillingConversion/独立退款、通知 outbox、静态-only PWA 缓存与分层 readiness；新增 M0 风险验证。 |

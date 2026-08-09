@@ -1,6 +1,6 @@
 # conspectus 设计文档
 
-> 订阅资产管理中心 · v0.5.1 · 2026-08-07 · 十二轮审计：上游依赖归属与邮箱启发式的误报代价（审阅记录见 [design-review.md](./design-review.md)）
+> 订阅资产管理中心 · v0.6.0 · 2026-08-08 · **M0–M6 全部交付**；本版与实现对齐（补 10 条端点、3 张表、2 个安全修复字段、collector 环境变量；certus#9 已就绪）。审阅记录见 [design-review.md](./design-review.md)
 
 ---
 
@@ -133,6 +133,7 @@ flowchart TB
         C7["每小时 时间驱动通知规则扫描"]
         C8["每小时 certus 状态恢复 / 失败重试"]
         C9["每日 certus 能力兼容性探测"]
+        C10["每分钟 邮件摘要批次投递"]
     end
 
     subgraph Auth["身份"]
@@ -206,9 +207,14 @@ conspectus/
    │  │  └─ settings/         # 本位币、通知、连接、导入导出
    │  └─ api/
    │     ├─ auth/certus/{start,callback,logout}/ # OIDC 发起、回调、RP-Initiated Logout
-   │     ├─ auth/{local-login,local-register,password-reset,verify-email,logout}/ # 本地认证（按 AUTH_MODE 条件注册）
+   │     ├─ auth/{local-login,local-register,password-reset,verify-email,request-verification,logout}/ # 本地认证（按 AUTH_MODE 条件注册）
+   │     ├─ auth/bind/{,start}/           # 绑定 certus：start 发起授权，回调按事务 purpose 分派
+   │     ├─ auth/reauth/start/            # 敏感操作重新认证
+   │     ├─ auth/delete-account/          # 注销账号
    │     ├─ auth/backchannel-logout/      # 接收 certus 的 logout_token
-   │     ├─ cron/{renewals,usage-sync,fx,notification-scan,notification-dispatch,identity-status,certus-capabilities,purge,rebase}/
+   │     ├─ billing/{stats,calendar}/     # 总览与日历数据
+   │     ├─ settings/devices/             # 采集设备管理
+   │     ├─ cron/{renewals,usage-sync,fx,notification-scan,notification-dispatch,notification-digest,identity-status,certus-capabilities,purge,rebase}/
    │     ├─ collect/{devices,usage,manifest}/ # 设备公钥注册、用量上报、绑定清单
    │     ├─ {health,ready}/       # 存活 / 就绪探针
    │     ├─ inbound/email/    # 邮件 webhook 入口
@@ -320,6 +326,7 @@ erDiagram
 | 字段 | 类型 | 说明 |
 | --- | --- | --- |
 | id | uuid PK | conspectus 内部主键，所有业务外键指向它 |
+| certusSubLegacy | text unique? | **迁移期专用**：#94 之前 `certusSub` 存的是 `usr_<sha256(iss sub)>` 摘要，而摘要不可逆，Back-Channel 的 sub 回退与状态端点都拿不回真实值。老行把摘要抄到本列，首次登录按它匹配后**原地升级**为原始 sub 并清空本列。新行永不写入。**不要因为"看起来没用"而删除**——删掉会让尚未再次登录的老账号在下次登录时被 JIT 建成第二个账号 |
 | certusSub | text unique? | certus 的 `sub`，**certus 侧的唯一关联键**，绑定后不可变；local-only 账号为空，certus/both 非空 |
 | email | text? | certus 路径写入 ID Token 快照（**不用于身份关联**）；存在本地登录方式时也是登录标识并要求唯一、必填；both 模式的改写与验证来源规则见下文 |
 | emailVerifiedAt | timestamptz? | 当前 `email` 快照已验证的时间；`false` / Claim 缺失一律置空。通知投递必须同时检查本字段、`emailSyncRequiredAt IS NULL`，见 §7.6 |
@@ -523,7 +530,16 @@ Quota 与数据源的关联**只经 `UsageBinding` 表达**，Quota 上不冗余
 `id, userId, fromCurrency, toCurrency, status(pending|running|done|failed), totalCount, doneCount, lastError, createdAt, updatedAt`。`rebaseCurrency` Action 校验后只建行；**部分唯一索引**保证每用户最多一行 `status IN (pending, running)`。`/api/cron/rebase` 分片消费、按 `doneCount/totalCount` 暴露进度；与 paid 入账共用用户级锁；切换本位币前再确认目标投影缺失数为 0（见上文 BillingConversion 并发段）。失败保留现场可重试。
 
 **ReauthTransaction** — 敏感操作一次性重新认证
-`id, userId, sessionId, action(enum/text), tokenHash bytea unique, expiresAt, verifiedAt?, consumedAt?, createdAt`。创建时绑定当前 Session、当前 `userId` 与目标动作，5 分钟有效；Cookie/回传只带随机 token，DB 存哈希。完成重新认证后先 CAS 写 `verifiedAt`：certus 回调必须确认新 ID Token 的 `sub` **等于该事务 `userId` 所关联的 `User.certusSub`**，本地路径则必须验证该事务用户自己的密码；任一身份不一致立即拒绝并销毁事务，不更新 Session。目标 Server Action 在 `requireUser()` 之后用 `UPDATE ... SET consumedAt=now() WHERE tokenHash=? AND verifiedAt IS NOT NULL AND consumedAt IS NULL AND expiresAt > now() AND sessionId=? AND userId=? AND action=?` **原子消费**；影响行数为 0 则拒绝。成功后可顺带提升该 Session 的 `authTime`，但**不能**仅靠 `authTime` 代替本表 —— 否则无法兑现「同一用户、绑定动作且只能用一次」。
+`id, userId, sessionId, action(enum/text), targetPath?, tokenHash bytea unique, expiresAt, verifiedAt?, consumedAt?, createdAt`。`targetPath` 存**完成后要跳回的站内路径**：它曾经放在未签名的 base64 Cookie 里，客户端改成绝对 URL 即可让回调变成开放重定向。放在服务端行上之后没有可篡改的载体，因此也不需要签名。写入前与跳转前各校验一次「必须是站内相对路径」，非法值**抛错而不是回落到 `/`** —— 静默纠正会把被构造的跳转变成一次「成功但去了别处」。`sessionId` 必须是真实 `Session.id`：曾以 `userId` 充当，导致同一用户的任一会话都能消费另一会话完成的重新认证。。创建时绑定当前 Session、当前 `userId` 与目标动作，5 分钟有效；Cookie/回传只带随机 token，DB 存哈希。完成重新认证后先 CAS 写 `verifiedAt`：certus 回调必须确认新 ID Token 的 `sub` **等于该事务 `userId` 所关联的 `User.certusSub`**，本地路径则必须验证该事务用户自己的密码；任一身份不一致立即拒绝并销毁事务，不更新 Session。目标 Server Action 在 `requireUser()` 之后用 `UPDATE ... SET consumedAt=now() WHERE tokenHash=? AND verifiedAt IS NOT NULL AND consumedAt IS NULL AND expiresAt > now() AND sessionId=? AND userId=? AND action=?` **原子消费**；影响行数为 0 则拒绝。成功后可顺带提升该 Session 的 `authTime`，但**不能**仅靠 `authTime` 代替本表 —— 否则无法兑现「同一用户、绑定动作且只能用一次」。
+
+**EmailVerificationToken** — 本地账号邮箱验证
+`id, userId, email, tokenHash bytea unique, expiresAt, consumedAt?, createdAt`。只存哈希、单次使用；令牌绑定**签发时的邮箱地址**，改邮箱后旧令牌不能验证新地址。
+
+**RateLimitCounter** — 跨实例限流计数
+`scope, subject, windowStart, count`，主键 `(scope, subject, windowStart)`。§9 要求限流状态放 PostgreSQL 原子更新而非进程内存 —— 双实例与 Serverless 下进程内存限流形同虚设。`subject` 存哈希，不存明文 IP 或账号。
+
+**DeepReadyProbe** — `?deep=1` 能力探测缓存
+`id, issuer, configRevision, result jsonb, checkedAt, leaseUntil?`。为 §5.4 的 deep 探测提供 60 秒缓存与 single-flight，避免并发部署检查放大对 certus 的请求。
 
 **PriceChange** — 涨价追踪
 `id, userId, subscriptionId, oldPrice, newPrice, currency, effectiveAt, detectedBy(enum: user|email|system)`
@@ -1188,6 +1204,16 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 | GET | `/api/collect/manifest` | 采集器拉取 bindings | 同上 |
 | GET | `/api/export` | CSV 导出流 | 会话 + 近期重新认证（见 §7.1 敏感操作） |
 | POST | `/api/import/preview` | CSV 预检 | 会话 |
+| GET | `/api/auth/bind/start` | 发起「绑定 certus」授权（`prompt=login&max_age=0`） | 会话；仅 certus/both |
+| POST/DELETE/PATCH | `/api/auth/bind` | POST 返回 405 指向上面的入口（裸 `sub` 曾可被抢注）；DELETE 解绑 certus、PATCH 解绑本地或设置密码 | 会话 + CSRF |
+| GET | `/api/auth/reauth/start` | 敏感操作重新认证；target 存事务行，Cookie 只带不透明 token | 会话 |
+| POST | `/api/auth/delete-account` | 注销账号并级联硬删除 | 会话 + 重新认证 |
+| POST | `/api/auth/request-verification` | 重发本地账号邮箱验证信 | 会话 + 限流；仅 local/both |
+| GET | `/api/billing/stats` | 总览统计数据 | 会话 |
+| GET | `/api/billing/calendar` | 续费日历数据 | 会话 |
+| POST | `/api/collect/revoke` | 撤销单台采集设备（§7.4 单设备撤销的唯一入口） | certus token + Introspection |
+| GET | `/api/settings/devices` | 采集设备列表与状态 | 会话 |
+| GET | `/api/cron/notification-digest` | 每分钟投递到期的邮件摘要批次 | `Authorization: Bearer $CRON_SECRET` |
 | GET | `/api/health` | 纯进程存活，不访问外部依赖 | — |
 | GET | `/api/ready` | 默认仅配置状态 + DB + 迁移；certus/both 下 `?deep=1` 追加机器可读能力探测，60s 缓存 + single-flight；local-only 不注册 deep | 默认供平台探针；deep 必须 `Bearer $DEPLOY_PROBE_SECRET`，无凭据返回 404；只报布尔/稳定错误码，不泄露配置值 |
 
@@ -1221,7 +1247,7 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 
 ## 10. 里程碑
 
-范围较大，先做一个 M0 风险验证，再按六个可独立交付的阶段推进（另有一个可漂移的 M1b）。
+**M0–M6 已全部交付**（2026-08-08）。下表保留为范围与验收索引；「交付标准」列即当初的验收口径，实现审计见 [design-review.md](./design-review.md)。
 
 | 阶段 | 内容 | 交付标准 |
 | --- | --- | --- |
@@ -1257,7 +1283,7 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 | R9 | 部署形态有两种，配置漏项的概率翻倍 | 上线后才发现某项没配 | 冷启动校验配置格式，`/api/ready` 校验 DB/迁移，部署期登录 smoke test；三层各负其责 |
 | R10 | Vercel Hobby 只能每日 Cron，且 cron 任务数量有上限（历史为 2 个，以当时计划为准），无法满足本地 09:00、分钟级重试与全部任务端点 | 通知 SLA 与设计不符 | 完整托管形态要求 Pro 或外部调度器；Hobby 部署必须在 UI/文档中明确每日降级；端点较多时可合并为单一 cron 入口按表驱动内部分发，绕过数量上限 |
 | **R11** | **conspectus 依赖 certus 的三项功能与一项机器可读兼容性契约**：跨客户端内省（[certus#2](https://github.com/devShuai/certus/issues/2)）、本地邮箱验证（[#3](https://github.com/devShuai/certus/issues/3)）、状态端点（[#4](https://github.com/devShuai/certus/issues/4)），以及 `/api/v1/clients/me/capabilities`（[certus#9](https://github.com/devShuai/certus/issues/9)）。仅靠 Discovery、随机 404 或 `active:false` 无法验证客户端特定配置 | 旧版本或错配可能静默拒绝采集、阻断邮件或失去状态观测；公开 deep 探针还可能放大上游限流 | M0 先落机器可读契约并做真实 E2E；deep ready 用专用 Bearer、60s 缓存与 single-flight；每日独立任务复核兼容性；runbook 固定 certus 先升级、E2E 通过、再发布 conspectus 的顺序 |
-| **R11b** | **前三项已在 certus 实现，`capabilities` 端点尚不存在（已登记 [certus#9](https://github.com/devShuai/certus/issues/9)）。** M0 把它写成 go/no-go 闸门，但闸门另一侧的实现没有归属人 —— 与 #2/#3/#4 建立的"跨仓需求即开 issue"流程不一致 | M0 可能因为一个没人认领的上游任务而无限期卡住；或被绕过（"先跳过 deep 探测"），把 R11 的静默降级风险原样带进 M1 | **[certus#9](https://github.com/devShuai/certus/issues/9) 关闭前不宣称 M0 认证侧通过**；若上游排期不允许，明确降级方案（deep 探测退回"Discovery + 真实 E2E"两层，接受无法区分"端点缺失"与"用户不可见"，并把该局限写进 runbook）而不是默默不做 |
+| **R11b** | **上游四项能力现已全部就绪**：跨客户端内省（[certus#2](https://github.com/devShuai/certus/issues/2)）、本地邮箱验证（[#3](https://github.com/devShuai/certus/issues/3)）、状态端点（[#4](https://github.com/devShuai/certus/issues/4)）与机器可读 capabilities（[#9](https://github.com/devShuai/certus/issues/9)，**已实现并关闭**）。仍未落地的只有 [certus#10](https://github.com/devShuai/certus/issues/10)（状态端点返回 `email`） | #10 未落地时，`emailSyncRequiredAt` 启发式继续生效：一次无关的画像更新也会把该用户的邮件通知延迟到下次登录（见 §6.2 邮箱段） | capabilities 已可用，deep ready 不再需要降级路径；#10 落地后可整体删除 `emailSnapshotIssuedAt` / `emailSyncRequiredAt` 这套启发式及其误报 |
 
 **待确认**：
 
@@ -1267,7 +1293,7 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 4. **Grok 你用的是哪种形态**：xAI API（有余额可查，M3 就能接）还是消费级订阅（只能先手动录入）？两者都买了的话在 conspectus 里是两条独立订阅。
 5. 用量采集之后要不要扩展到云厂商资源包 / 域名续费额度？会引入第四类计量模型（按量计费无上限），暂不设计。
 6. **`IDENTITY_STATUS_TTL` 取值**：certus 状态端点已就绪（[certus#4](https://github.com/devShuai/certus/issues/4)），复核延迟上界即该 TTL。默认 1 小时是"够用且不打扰 certus"的折中；若希望停用更快生效可调小，代价是每次出站前更容易触发一次跨服务请求。M0 联调后按实际请求量定。
-7. **两项 certus 上游需求及降级边界**（见 R11b 与 §6.2 邮箱段）：① `/api/v1/clients/me/capabilities` 机器可读兼容性端点（[certus#9](https://github.com/devShuai/certus/issues/9)）；② 状态端点一并返回 `email`，以消除 `emailSyncRequiredAt` 启发式及其误报（[certus#10](https://github.com/devShuai/certus/issues/10)）。**均已登记为 issue**，待确定响应 schema / 版本规则后排期。① 未完成时完整认证 profile 的 M0 不通过；若业务决定继续，只能登记为显式兼容性降级（deep 退回 Discovery + 发布 E2E，运维面板持续显示 `capability_unknown`），不能宣称等价。② 未完成时保留当前 fail-safe，M3 必须把“无关画像更新也可能延迟 certus 邮件直到重新登录”列为已知降级。
+7. **certus 上游需求收敛为一项**：`/api/v1/clients/me/capabilities`（[certus#9](https://github.com/devShuai/certus/issues/9)）**已实现并关闭**，deep ready 的能力探测按正式契约运行。剩余 [certus#10](https://github.com/devShuai/certus/issues/10)（状态端点一并返回 `email`）仍 open——落地前保留 §6.2 的邮箱快照 fail-safe，并把「无关画像更新也可能延迟 certus 邮件直到重新登录」列为已知降级。
 
 ---
 
@@ -1322,7 +1348,8 @@ AUTH_MODE=certus                # certus | local | both
 # 模式含 certus 时必填
 CERTUS_ISSUER=                  # 如 https://auth.example.com，discovery 由它推导
 CERTUS_CLIENT_ID=conspectus
-CERTUS_CLIENT_SECRET=           # 创建/轮换时只显示一次
+CERTUS_CLIENT_SECRET=
+CERTUS_CLI_CLIENT_ID=conspectus-cli  # 采集器令牌的 client_id，introspection 精确比对           # 创建/轮换时只显示一次
 IDENTITY_STATUS_TTL=1h          # 出站前复核 certus 用户状态的最小间隔，见 §6.2
 IDENTITY_STATUS_MAX_STALE=24h   # 距最近权威观测超过该值时，外部动作进入可恢复 fail-closed
 DEPLOY_PROBE_SECRET=            # 仅部署流水线调用 /api/ready?deep=1；不得与 CRON_SECRET 相同
@@ -1337,6 +1364,16 @@ RESEND_API_KEY=
 EMAIL_FROM=                     # Resend 发件身份（通知与验证邮件）
 INBOUND_WEBHOOK_SECRET=
 INBOUND_EMAIL_DOMAIN=           # 生成用户收件别名，如 in.conspectus.app（M6 前可空）
+
+# 仅测试环境生效：非 test 时冷启动即拒绝启动（#64）
+TEST_DATABASE_URL=
+
+# ---- collector（conspectus-collect，独立 npm 包，用户机器上的环境）----
+CONSPECTUS_CONFIG_DIR=          # 覆盖 ~/.conspectus（测试与多账号切换用）
+CONSPECTUS_CLAUDE_ENABLED=      # 显式开启 Claude Code collector
+CONSPECTUS_MINIMAX_ENABLED=     # 显式开启 MiniMax collector（实验性）
+MINIMAX_API_KEY=
+MINIMAX_HOST=
 ```
 
 冷启动配置校验：按 `AUTH_MODE` 检查变量齐全（含 `local` 时 `RESEND_API_KEY` 必填）、`APP_URL` 与派生回调 URL、active 加密 key、`CRON_SECRET` 非空非默认；含 certus 时再要求 `DEPLOY_PROBE_SECRET` 非空非默认且与 cron secret 不同，并校验 `IDENTITY_STATUS_MAX_STALE > IDENTITY_STATUS_TTL > 0`。数据库与迁移由轻量 `/api/ready` 检查；certus 机器可读声明由受保护 deep ready 检查，真实行为仍由 M0/发布 smoke test 验证。

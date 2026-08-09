@@ -15,15 +15,15 @@ conspectus 拉丁本义"一览、总览"。图形：四格总览网格，右上�
 
 ## 状态
 
-🚧 **M0 风险验证阶段。** 最小 Next.js 工程与 certus OIDC + 自有不透明 Session PoC 已完成真实 E2E；尚无可发布的业务功能。
+**M0–M6 已全部落地。** 认证（certus SSO 与本地账号）、订阅与账单、多币种汇率投影、用量三通道、通知 outbox、本地采集器与邮件导入均已实现并有测试覆盖（100 个测试文件 / 622 个用例）。尚未做生产部署。
 
 完整设计见 **[docs/design.md](docs/design.md)** —— 产品定位、数据模型、模块详设、里程碑与风险。
 
-设计审阅意见见 **[docs/design-review.md](docs/design-review.md)**（十二轮复审台账；当前实现基线 **v0.5.1**，下一步 **M0**）。
+设计审阅意见见 **[docs/design-review.md](docs/design-review.md)**（十二轮复审台账 + 逐条实现审计）。
 
 M0 认证 PoC 的复现步骤与安全边界见 **[docs/m0-auth-poc.md](docs/m0-auth-poc.md)**。
 
-## 计划中的能力
+## 能力
 
 | | |
 | --- | --- |
@@ -46,16 +46,18 @@ Next.js 16（App Router）· React 19 · TypeScript · Tailwind CSS v4 · Prisma
 
 ## 里程碑
 
-| 阶段 | 内容 |
-| --- | --- |
-| **M0** 风险验证 | OIDC + 自有 Session PoC；certus 机器可读 capabilities 契约与真实 E2E；平台余额 API 与本地 collector 可行性验证 |
-| **M1** 骨架 | certus OIDC、自有数据库会话、租户约束、订阅 CRUD、周期推算 |
-| **M1b** 本地账号 | 本地密码接入同一 Session、找回、验证与账号绑定 |
-| **M2** 钱 | 扣费/退款、版本化汇率投影、总览与统计、续费日历、CSV |
-| **M3** 提醒 + 用量 | Cron 幂等、通知 outbox、用量模型、API 平台余额适配器 |
-| **M4** 本地采集器 | certus 设备授权、设备签名、manifest binding、Codex 与 Claude Code 采集 |
-| **M5** PWA + 部署 | 可安装、静态离线壳、移动端布局；Docker 与 Vercel 两套产物 |
-| **M6** 导入 | 专属收件地址、邮件解析规则库、草稿确认流 |
+全部阶段已交付；下表保留为范围索引。
+
+| 阶段 | 内容 | 状态 |
+| --- | --- | --- |
+| **M0** 风险验证 | OIDC + 自有 Session PoC；certus 机器可读 capabilities 契约与真实 E2E；平台余额 API 与本地 collector 可行性验证 | ✅ |
+| **M1** 骨架 | certus OIDC、自有数据库会话、租户约束、订阅 CRUD、周期推算 | ✅ |
+| **M1b** 本地账号 | 本地密码接入同一 Session、找回、验证与账号绑定 | ✅ |
+| **M2** 钱 | 扣费/退款、版本化汇率投影、总览与统计、续费日历、CSV | ✅ |
+| **M3** 提醒 + 用量 | Cron 幂等、通知 outbox、用量模型、API 平台余额适配器 | ✅ |
+| **M4** 本地采集器 | certus 设备授权、设备签名、manifest binding、Codex 与 Claude Code 采集 | ✅ |
+| **M5** PWA + 部署 | 可安装、静态离线壳、移动端布局；Docker 与 Vercel 两套产物 | ✅ |
+| **M6** 导入 | 专属收件地址、邮件解析规则库、草稿确认流 | ✅ |
 
 ## 品牌
 
