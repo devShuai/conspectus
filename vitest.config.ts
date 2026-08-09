@@ -26,8 +26,11 @@ loadEnvFile();
  *
  * `collector/` is a separate npm package; when it was only reachable through
  * its own `npm test`, nothing invoked it and M4 shipped with zero coverage
- * while the root run still reported a growing green total. Both projects are
+ * while the root run still reported a growing green total. All projects are
  * declared here so a single `npm test` cannot silently skip one.
+ *
+ * `workers/email-forward/`（#59）的 server-parity 测试直接 import 服务端
+ * src/server/import/inbound.ts 做双端签名对拍，因此该项目也需要 "@" alias。
  */
 export default defineConfig({
   test: {
@@ -52,6 +55,20 @@ export default defineConfig({
         test: {
           name: "collector",
           root: fileURLToPath(new URL("./collector", import.meta.url)),
+          environment: "node",
+          include: ["src/**/*.test.ts"],
+          restoreMocks: true,
+        },
+      },
+      {
+        resolve: {
+          alias: {
+            "@": fileURLToPath(new URL("./src", import.meta.url)),
+          },
+        },
+        test: {
+          name: "email-forward",
+          root: fileURLToPath(new URL("./workers/email-forward", import.meta.url)),
           environment: "node",
           include: ["src/**/*.test.ts"],
           restoreMocks: true,

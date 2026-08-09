@@ -1,0 +1,38 @@
+{
+  "comment": "#59 双端签名对拍向量（scripts/generate-signature-vectors.mjs 生成）。canonical 与服务端 inboundSignatureMessage、Worker 端 sign.ts 逐字节对齐。",
+  "path": "/api/inbound/email",
+  "vectors": [
+    {
+      "name": "basic-ascii",
+      "secret": "test-inbound-webhook-secret-0123456789abcdef",
+      "timestamp": "1754726400000",
+      "bodyText": "{\"messageId\":\"<m-001@mail.test>\",\"from\":\"billing@vendor.test\",\"to\":\"u-bbbbbbbbbbbbbbbbbbbbbbbbbb@in.example.test\",\"subject\":\"Your receipt\",\"receivedAt\":\"2026-08-09T08:00:00.000Z\",\"raw\":\"RnJvbTogYmlsbGluZ0B2ZW5kb3IudGVzdA0KU3ViamVjdDogWW91ciByZWNlaXB0DQoNCmNoYXJnZWQgNjggQ05Z\"}",
+      "canonical": "POST\n/api/inbound/email\n1754726400000\n5c290b7eb302f2e8f6571dfaf2621c53a70c3dd2e6258bb947f5698cbaac1b1d",
+      "signature": "2276ad4f9226e74bbfb7dc4dbb80eebdf1f57db54b1efc57c96ec163ddfaff48"
+    },
+    {
+      "name": "unicode-subject",
+      "secret": "another-secret-with-unicode-密钥",
+      "timestamp": "1754726400123",
+      "bodyText": "{\"messageId\":\"<m-002@mail.test>\",\"from\":\"billing@vendor.test\",\"to\":\"u-cccccccccccccccccccccccccc@in.example.test\",\"subject\":\"扣款通知：会员续费 ¥68\",\"receivedAt\":\"2026-08-09T08:00:01.123Z\",\"raw\":\"U3ViamVjdDog5omj5qy+6YCa55+lDQoNCue7rei0uSDCpTY4\"}",
+      "canonical": "POST\n/api/inbound/email\n1754726400123\n43f2eab4da1006fd2cec3a8cbf57434332c2b90860bd2c91fdd1d33c521fe732",
+      "signature": "9e0eb57f4d52a4125a84817c73dbe999b45ff17cd747404b84877b72b53a18a4"
+    },
+    {
+      "name": "no-raw-field",
+      "secret": "test-inbound-webhook-secret-0123456789abcdef",
+      "timestamp": "1754726499999",
+      "bodyText": "{\"messageId\":\"<m-003@mail.test>\",\"from\":\"billing@vendor.test\",\"to\":\"u-dddddddddddddddddddddddddd@in.example.test\",\"subject\":\"\",\"receivedAt\":\"2026-08-09T08:01:39.999Z\"}",
+      "canonical": "POST\n/api/inbound/email\n1754726499999\n4f12b3efb32ebedef3bf97dbd7ab4020b467291933b323fa226e8bb39068d87f",
+      "signature": "570cb1b1e8ac3724b1c26429f9ddb46ef1509560bc730ad74d704f402e0df8aa"
+    },
+    {
+      "name": "empty-body-edge",
+      "secret": "x",
+      "timestamp": "0",
+      "bodyText": "",
+      "canonical": "POST\n/api/inbound/email\n0\ne3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "signature": "19fadb7607184d04d168f0185ec34500b55833efdf4ff1b6059b12337f589b05"
+    }
+  ]
+}

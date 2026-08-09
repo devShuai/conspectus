@@ -1,0 +1,12 @@
+# Cloudflare Email Worker：收信 → 签名 webhook 转发到 conspectus /api/inbound/email（#59）。
+# 部署步骤见 docs/runbook.md「邮件入站」一节。
+name = "conspectus-email-forward"
+main = "src/index.ts"
+compatibility_date = "2026-08-01"
+
+# 站点基址（不含路径），部署前改成实际站点域名
+[vars]
+INBOUND_ENDPOINT = "https://app.example.com"
+
+# INBOUND_WEBHOOK_SECRET 绝不写入此文件，用 secret 注入（与服务端同名环境变量同值）：
+#   npx wrangler secret put INBOUND_WEBHOOK_SECRET
