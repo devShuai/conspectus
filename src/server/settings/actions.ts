@@ -8,6 +8,13 @@ import { currentAppSession } from "@/server/auth/current-session";
 import { isSupportedCurrency } from "@/server/billing/fx";
 import { RebaseError, requestBaseCurrencyChange } from "@/server/billing/rebase";
 import { seedDefaultNotificationRules } from "@/server/notify/seed";
+import {
+  NotificationAdminError,
+  rotateWebhookSecret,
+  saveChannel,
+  saveRule,
+  setChannelEnabled,
+} from "@/server/notify/manage";
 import { TenantError } from "@/server/billing/subscriptions";
 import {
   ConnectionError,
@@ -86,6 +93,31 @@ const KNOWN_ERRORS: Array<{
           : r === "quota_not_found"
             ? "额度不存在"
             : r,
+  },
+  {
+    match: (c) => (c instanceof NotificationAdminError ? c.reason : null),
+    message: (r) =>
+      r === "webhook_digest_unsupported"
+        ? "Webhook 渠道只支持逐条发送（每日摘要仅邮件渠道）"
+        : r === "destination_required"
+          ? "Webhook 渠道需要目标 URL"
+          : r === "destination_webhook_only"
+            ? "目标 URL 仅 Webhook 渠道使用"
+            : r === "channel_not_found"
+              ? "渠道不存在或已删除"
+              : r === "channel_type_immutable"
+                ? "渠道类型不可修改"
+                : r === "secret_webhook_only"
+                  ? "仅 Webhook 渠道有签名密钥"
+                  : r === "rule_not_found"
+                    ? "规则不存在"
+                    : r === "rule_type_immutable"
+                      ? "规则类型不可修改"
+                      : r === "subscription_not_found"
+                        ? "订阅不存在"
+                        : r === "invalid_rule_config"
+                          ? "规则配置不合法，请检查阈值格式"
+                          : r,
   },
 ];
 
@@ -443,6 +475,189 @@ export async function seedNotificationRulesAction(
     void formData;
     const created = await seedDefaultNotificationRules(userId);
     void created;
+    revalidatePath("/settings/notifications");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/* ---------- 通知渠道与规则管理（#115，design §7.6/§8） ---------- */
+
+const NotificationChannelSchema = z.object({
+  channelId: z.string().trim().min(1).optional(),
+  type: z.enum(["email", "webhook"]),
+  mode: z.enum(["individual", "daily_digest"]).default("individual"),
+  destination: z
+    .string()
+    .trim()
+    .max(2048)
+    .refine(
+      (v) => {
+        if (v === "") return true;
+        try {
+          const url = new URL(v);
+          return url.protocol === "https:" || url.protocol === "http:";
+        } catch {
+          return false;
+        }
+      },
+      "目标 URL 需为 http(s) 地址",
+    )
+    .optional(),
+  enabled: z.enum(["true", "false"]).optional(),
+});
+
+export type SaveChannelResult = ActionResult<{
+  enabled: boolean;
+  verified: boolean | null;
+}>;
+
+export async function saveNotificationChannel(
+  prev: SaveChannelResult | undefined,
+  formData: FormData,
+): Promise<SaveChannelResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = NotificationChannelSchema.safeParse({
+      channelId: String(formData.get("channelId") ?? "") || undefined,
+      type: formData.get("type") ?? "",
+      mode: formData.get("mode") ?? "individual",
+      destination: String(formData.get("destination") ?? "") || undefined,
+      enabled: formData.get("enabled") ?? undefined,
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    const result = await saveChannel({
+      userId,
+      channelId: parsed.data.channelId,
+      type: parsed.data.type,
+      mode: parsed.data.mode,
+      destination: parsed.data.destination,
+      enabled:
+        parsed.data.enabled === undefined ? undefined : parsed.data.enabled === "true",
+    });
+    revalidatePath("/settings/notifications");
+    return { ok: true, data: { enabled: result.enabled, verified: result.verified } };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/** 轮换 webhook 签名密钥：旧签名立即失效（§7.6）。 */
+export async function rotateNotificationChannelSecret(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const channelId = String(formData.get("channelId") ?? "");
+    await rotateWebhookSecret({ userId, channelId });
+    revalidatePath("/settings/notifications");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+/** 渠道启停（#115）：启用 webhook 会先跑验证性 POST，未通过保持停用并报错。 */
+export async function setNotificationChannelEnabled(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const channelId = String(formData.get("channelId") ?? "");
+    const enabled = String(formData.get("enabled") ?? "") === "true";
+    const result = await setChannelEnabled({ userId, channelId, enabled });
+    revalidatePath("/settings/notifications");
+    if (enabled && result.verified === false) {
+      return {
+        ok: false,
+        error: { code: "verify_failed", message: "验证性 POST 未通过，渠道保持停用；修复目标后重试" },
+      };
+    }
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+const intList = z
+  .string()
+  .trim()
+  .transform((v) =>
+    v === "" ? [] : v.split(/[,\s]+/).filter(Boolean).map(Number).filter(Number.isFinite),
+  );
+
+const NotificationRuleSchema = z.object({
+  ruleId: z.string().trim().min(1).optional(),
+  type: z.enum([
+    "renewal_due",
+    "trial_ending",
+    "usage_threshold",
+    "balance_low",
+    "collector_stale",
+    "price_change",
+    "connection_failed",
+  ]),
+  subscriptionId: z.string().trim().min(1).optional(),
+  enabled: z.enum(["true", "false"]).optional(),
+  daysBefore: intList.optional(),
+  percent: intList.optional(),
+  minValue: optionalNumber,
+  minDaysLeft: optionalNumber,
+  days: optionalNumber,
+});
+
+export async function saveNotificationRule(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = NotificationRuleSchema.safeParse({
+      ruleId: String(formData.get("ruleId") ?? "") || undefined,
+      type: formData.get("type") ?? "",
+      subscriptionId: String(formData.get("subscriptionId") ?? "") || undefined,
+      enabled: formData.get("enabled") ?? undefined,
+      daysBefore: formData.get("daysBefore") ?? undefined,
+      percent: formData.get("percent") ?? undefined,
+      minValue: formData.get("minValue") ?? "",
+      minDaysLeft: formData.get("minDaysLeft") ?? "",
+      days: formData.get("days") ?? "",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    const { ruleId, type, subscriptionId, enabled, daysBefore, percent, minValue, minDaysLeft, days } =
+      parsed.data;
+    // 启停开关（ActionButton）不带任何配置字段 → 保留原配置
+    const hasConfig =
+      daysBefore !== undefined ||
+      percent !== undefined ||
+      minValue !== undefined ||
+      minDaysLeft !== undefined ||
+      days !== undefined;
+    await saveRule({
+      userId,
+      ruleId,
+      type,
+      subscriptionId,
+      enabled: enabled === undefined ? undefined : enabled === "true",
+      ...(hasConfig
+        ? {
+            config: {
+              ...(daysBefore?.length ? { daysBefore } : {}),
+              ...(percent?.length ? { percent } : {}),
+              ...(minValue !== undefined ? { minValue } : {}),
+              ...(minDaysLeft !== undefined ? { minDaysLeft } : {}),
+              ...(days !== undefined ? { days } : {}),
+            },
+          }
+        : {}),
+    });
     revalidatePath("/settings/notifications");
     return { ok: true };
   } catch (cause) {
