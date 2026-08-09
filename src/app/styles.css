@@ -294,6 +294,23 @@ a.stat-card {
   margin: 0 auto;
 }
 
+/* 品牌字标（#83）：移动端底栏保持纯文字五个标签，默认隐藏 */
+.app-nav-brand {
+  display: none;
+  align-items: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 0 16px;
+  color: inherit;
+  font-weight: 750;
+  letter-spacing: -0.01em;
+  text-decoration: none;
+}
+
+.app-nav-brand picture {
+  display: inline-flex;
+}
+
 .app-nav-item {
   min-height: 56px;
   display: flex;
@@ -324,6 +341,15 @@ a.stat-card {
     bottom: auto;
     border-top: none;
     border-bottom: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  }
+
+  .app-nav-inner {
+    justify-content: flex-start;
+  }
+
+  .app-nav-brand {
+    display: inline-flex;
+    margin-right: auto;
   }
 
   .app-layout {

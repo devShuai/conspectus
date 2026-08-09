@@ -17,6 +17,14 @@ export default function AppNav() {
   return (
     <nav className="app-nav" aria-label="主导航">
       <div className="app-nav-inner">
+        {/* 桌面顶栏左侧字标（#83）；移动端底栏保持纯文字标签，CSS 里隐藏 */}
+        <Link href="/" className="app-nav-brand">
+          <picture>
+            <source srcSet="/logo-mark-dark.svg" media="(prefers-color-scheme: dark)" />
+            <img src="/logo-mark.svg" alt="" width="24" height="24" />
+          </picture>
+          <span className="app-nav-wordmark">conspectus</span>
+        </Link>
         {NAV.map((item) => {
           const current =
             item.href === "/" ? pathname === "/" : pathname.startsWith(item.href);
