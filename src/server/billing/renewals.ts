@@ -81,22 +81,40 @@ export async function runRenewals(now: Date = new Date()): Promise<{
   // Candidate window is generous (UTC+14) and then narrowed per user timezone.
   const horizon = new Date(now.getTime() + MAX_TZ_OFFSET_MS);
 
+  /**
+   * Timezones are loaded separately rather than through `include: { user }`.
+   * The relation is required, so Prisma raises "Inconsistent query result" if
+   * the row disappears between the scan and the join -- which deleteAccount
+   * can cause at any moment, aborting the whole run for every other user. A
+   * separate lookup lets a vanished owner simply drop out of this pass.
+   */
+  async function timezonesFor(userIds: string[]): Promise<Map<string, string>> {
+    if (userIds.length === 0) return new Map();
+    const users = await db.user.findMany({
+      where: { id: { in: userIds } },
+      select: { id: true, timezone: true },
+    });
+    return new Map(users.map((u) => [u.id, u.timezone]));
+  }
+
   // 1) Due active subscriptions
   const active = await db.subscription.findMany({
     where: {
       status: "active",
       nextBillingAt: { not: null, lte: horizon },
     },
-    include: { user: { select: { timezone: true } } },
     take: 500,
   });
+  const activeTimezones = await timezonesFor([...new Set(active.map((s) => s.userId))]);
   for (const sub of active) {
+    const timezone = activeTimezones.get(sub.userId);
+    if (!timezone) continue; // owner deleted mid-run
     if (sub.billingCycle === "lifetime" || sub.billingCycle === "one_time") {
       continue;
     }
     if (!sub.nextBillingAt) continue;
 
-    const today = localToday(now, sub.user.timezone);
+    const today = localToday(now, timezone);
     if (sub.nextBillingAt > today) continue; // not due in the user's calendar yet
 
     if (!sub.autoRenew) {
@@ -157,14 +175,16 @@ export async function runRenewals(now: Date = new Date()): Promise<{
       status: "trial",
       trialEndsAt: { not: null, lte: horizon },
     },
-    include: { user: { select: { timezone: true } } },
     take: 500,
   });
+  const trialTimezones = await timezonesFor([...new Set(trials.map((s) => s.userId))]);
   for (const trial of trials) {
+    const timezone = trialTimezones.get(trial.userId);
+    if (!timezone) continue; // owner deleted mid-run
     const trialEndsAt = trial.trialEndsAt;
     if (!trialEndsAt) continue;
 
-    const today = localToday(now, trial.user.timezone);
+    const today = localToday(now, timezone);
     if (trialEndsAt > today) continue;
 
     // Whole transition in one transaction: lock -> CAS re-check -> write.

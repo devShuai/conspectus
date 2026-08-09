@@ -7,6 +7,17 @@ import { UsageReadingSchema } from "./reading";
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
 
+/**
+ * Snapshot fixtures must stay inside the 180-day retention window: runPurge
+ * deletes older snapshots globally, and other test files call it in parallel.
+ * A fixed literal date silently becomes a time bomb — the one used here
+ * ("2026-01-01") started failing once the real clock passed the cutoff.
+ * Hours-ago offsets keep the relative ordering the tests rely on.
+ */
+function hoursAgo(hours: number): string {
+  return new Date(Date.now() - hours * 3_600_000).toISOString();
+}
+
 function uniqueSub(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
@@ -73,7 +84,7 @@ describe.skipIf(DISABLED)("usage ingest", () => {
       unit: "req",
       usedValue: "80",
       limitValue: "100",
-      capturedAt: "2026-01-01T06:00:00Z",
+      capturedAt: hoursAgo(6),
     });
     const result = await ingestReadings(user.id, [reading]);
     expect(result.accepted).toBe(1);
@@ -91,7 +102,7 @@ describe.skipIf(DISABLED)("usage ingest", () => {
       unit: "req",
       usedValue: "42",
       limitValue: "100",
-      capturedAt: "2026-01-01T07:00:00Z",
+      capturedAt: hoursAgo(5),
     });
     await ingestReadings(user.id, [authReading]);
     const quotaAfter2 = await db.usageQuota.findUnique({ where: { id: quota.id } });
@@ -124,7 +135,7 @@ describe.skipIf(DISABLED)("usage ingest", () => {
         unit: "req",
         usedValue: "90",
         limitValue: "100",
-        capturedAt: "2026-01-01T08:00:00Z",
+        capturedAt: hoursAgo(4),
       }),
     ]);
     // stale older reading
@@ -136,7 +147,7 @@ describe.skipIf(DISABLED)("usage ingest", () => {
         unit: "req",
         usedValue: "10",
         limitValue: "100",
-        capturedAt: "2026-01-01T07:00:00Z",
+        capturedAt: hoursAgo(5),
       }),
     ]);
     const quotaAfter = await db.usageQuota.findUnique({ where: { id: quota.id } });
