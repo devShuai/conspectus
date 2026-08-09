@@ -82,9 +82,6 @@ export async function upsertCertusUser(
         email: claims.email,
         emailVerifiedAt: hasVerifiedEmail ? now : null,
         emailVerificationSource: hasVerifiedEmail ? "certus" : null,
-        emailSnapshotIssuedAt: claims.email !== undefined && claims.idTokenIat !== undefined
-          ? observedAt
-          : null,
       },
     });
     return { userId: created.id, user: created };
@@ -112,17 +109,6 @@ export async function upsertCertusUser(
           : emailChanged
             ? null
             : existing.emailVerificationSource,
-        emailSnapshotIssuedAt:
-          claims.idTokenIat !== undefined
-            ? observedAt
-            : emailChanged
-              ? null
-              : existing.emailSnapshotIssuedAt,
-        // #116/§6.2：本次登录拿到新的 email + email_verified 成对快照才清除同步标记
-        emailSyncRequiredAt:
-          claims.emailVerified !== undefined
-            ? null
-            : existing.emailSyncRequiredAt,
       }
     : {};
   const updated = await tx.user.update({
@@ -144,22 +130,8 @@ export async function upsertCertusUser(
       ...emailData,
     },
   });
-  // §7.6 恢复联动（#116）：重新登录取得已验证的成对快照后，把因邮箱快照
-  // 陈旧而延迟的 Delivery/Digest 推回立即可投（subject 适用性由投递前复核再查）
-  if (hasEmailClaim && claims.emailVerified === true) {
-    const wakeWhere = {
-      userId: updated.id,
-      status: "pending" as const,
-      deferredReason: "email_snapshot_stale",
-    };
-    await tx.notificationDelivery.updateMany({
-      where: wakeWhere,
-      data: { nextAttemptAt: now },
-    });
-    await tx.notificationDigest.updateMany({
-      where: wakeWhere,
-      data: { nextAttemptAt: now },
-    });
-  }
+  // #125：不再有「等重新登录刷新邮箱快照」这条路径 —— 投递前的逐批复核直接拿
+  // certus 的 email + email_verified 成对判定，因门禁延迟的行按各自的退避重试
+  // 自行恢复，不需要登录来解锁。
   return { userId: updated.id, user: updated };
 }

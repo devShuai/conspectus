@@ -197,7 +197,7 @@ describe.skipIf(DISABLED)("JIT certus user", () => {
     await db.user.delete({ where: { id: second.userId } });
   });
 
-  it("keeps the email snapshot and proof when the ID Token omits email", async () => {
+  it("keeps the email and its proof when the ID Token omits email", async () => {
     const sub = uniqueSub("usr-jit-email-omitted");
     const firstIat = 1_786_147_200;
     const secondIat = firstIat + 60;
@@ -208,13 +208,11 @@ describe.skipIf(DISABLED)("JIT certus user", () => {
       idTokenIat: firstIat,
     });
     const originalProof = first.user.emailVerifiedAt;
-    const originalSnapshot = first.user.emailSnapshotIssuedAt;
 
     const second = await upsertCertusUser({ sub, idTokenIat: secondIat });
     expect(second.user.email).toBe("kept@example.com");
     expect(second.user.emailVerifiedAt).toEqual(originalProof);
     expect(second.user.emailVerificationSource).toBe("certus");
-    expect(second.user.emailSnapshotIssuedAt).toEqual(originalSnapshot);
     expect(second.user.lastStatusSyncedAt).toEqual(new Date(secondIat * 1_000));
 
     await db.user.delete({ where: { id: second.userId } });

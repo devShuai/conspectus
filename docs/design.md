@@ -1,6 +1,6 @@
 # conspectus 设计文档
 
-> 订阅资产管理中心 · v0.6.0 · 2026-08-08 · **M0–M6 全部交付**；本版与实现对齐（补 10 条端点、3 张表、2 个安全修复字段、collector 环境变量；certus#9 已就绪）。审阅记录见 [design-review.md](./design-review.md)
+> 订阅资产管理中心 · v0.7.0 · 2026-08-09 · **M0–M6 全部交付**；本版落地 certus#10（状态端点成对返回 email），删除邮箱快照启发式（补 10 条端点、3 张表、2 个安全修复字段、collector 环境变量；certus#9 已就绪）。审阅记录见 [design-review.md](./design-review.md)
 
 ---
 
@@ -329,10 +329,8 @@ erDiagram
 | certusSubLegacy | text unique? | **迁移期专用**：#94 之前 `certusSub` 存的是 `usr_<sha256(iss sub)>` 摘要，而摘要不可逆，Back-Channel 的 sub 回退与状态端点都拿不回真实值。老行把摘要抄到本列，首次登录按它匹配后**原地升级**为原始 sub 并清空本列。新行永不写入。**不要因为"看起来没用"而删除**——删掉会让尚未再次登录的老账号在下次登录时被 JIT 建成第二个账号 |
 | certusSub | text unique? | certus 的 `sub`，**certus 侧的唯一关联键**，绑定后不可变；local-only 账号为空，certus/both 非空 |
 | email | text? | certus 路径写入 ID Token 快照（**不用于身份关联**）；存在本地登录方式时也是登录标识并要求唯一、必填；both 模式的改写与验证来源规则见下文 |
-| emailVerifiedAt | timestamptz? | 当前 `email` 快照已验证的时间；`false` / Claim 缺失一律置空。通知投递必须同时检查本字段、`emailSyncRequiredAt IS NULL`，见 §7.6 |
+| emailVerifiedAt | timestamptz? | 当前 `email` 快照已验证的时间；`false` / Claim 缺失一律置空。通知投递必须检查本字段，见 §7.6 |
 | emailVerificationSource | enum? | `local` / `certus`；防止 certus 的验证位覆盖同一地址已完成的本地验证。邮箱值变化时无条件清空旧来源与时间，再按新地址重新建立证明 |
-| emailSnapshotIssuedAt | timestamptz? | certus 邮箱快照所对应的已校验 ID Token `iat`；与状态端点的 `updated_at` 使用同一个 certus 时钟，可判断快照签发后画像是否变化。本地账号为空 |
-| emailSyncRequiredAt | timestamptz? | certus `updated_at > emailSnapshotIssuedAt` 时写入；表示状态端点只能证明“某个当前地址”的验证位，却不能证明本地 `email` 仍是那个地址。清空前必须重新登录取得新的 email + `email_verified` 成对快照 |
 | lastStatusSyncedAt | timestamptz? | certus 身份最近一次权威观测：状态端点的明确 200/404，或成功签发 ID Token 的 `iat`；local-only 可空，绑定 certus 后必须非空。配合 TTL / MAX_STALE 决定出站门禁 |
 | certusLinkStatus | enum? | `active` / `reauth_required`；仅 certus 关联存在时非空。状态端点 404 只写 `reauth_required`，不写全局 suspended；成功重新授权恢复 active |
 | statusCheckFailureCount / nextStatusCheckAt | int / timestamptz? | 状态端点网络、5xx、429 的持久化重试状态；成功归零。429 尊重 `Retry-After`，其余按 5min → 15min → 1h 封顶并加抖动 |
@@ -380,11 +378,20 @@ erDiagram
   - 200 `active`：只解除由 `certus_locked` / `certus_disabled` 写入的 suspended，绝不覆盖本地管理员的 `admin`；同时把 `certusLinkStatus=active`。
   - **404：只写 `certusLinkStatus=reauth_required` 并撤销 certus Session，不写全局 suspended。** 404 有意合并“无 consent / consent 已撤销 / 用户不存在”，不能据此锁死 `both` 模式的本地密码。certus-only 用户此时没有可用身份，出站动作进入可恢复延迟；`both` 用户仍可本地登录，非 certus 依赖的 Provider/Webhook 可继续。UI 只能写“认证中心已不再向本应用提供该账号信息，请重新授权”，不得断言账号已删除。
   - 成功完成新的 OIDC 授权：把 link 恢复 active，并可解除 certus 原因的 suspended；若 `statusReason=admin` 则仍拒绝创建 Session。这样 404 后有明确的用户驱动恢复路径。
-- **邮箱验证位不能脱离地址单独刷新。** 状态端点明确不返回邮箱，只返回 `email_verified + updated_at`。登录时从已校验 ID Token 一次性写入 `email`、`email_verified`、`emailSnapshotIssuedAt=iat`；若地址变化，先清空任何旧验证证明。后台状态响应满足 `updated_at > emailSnapshotIssuedAt` 时，说明画像在该邮箱快照后发生过变化：若当前证明来源是 certus，则同时清空 `emailVerifiedAt` 与 `emailVerificationSource`，写 `emailSyncRequiredAt`，**即使响应的 `email_verified=true` 也不得给旧地址重新授权**。只有下一次登录拿到新的 email + Claim 成对快照才能清除；这是 certus 最小披露端点下的安全取舍。若同一标准化地址已有 `emailVerificationSource=local`，certus 状态不得清除该独立证明。
+- **邮箱验证位不能脱离地址单独使用。** 状态端点成对返回 `email + email_verified`（[certus#10](https://github.com/devShuai/certus/issues/10)，已实现），验证位只对同一响应里的那个地址有效。登录时从已校验 ID Token 一次性写入 `email` 与 `email_verified`；若地址变化，先清空任何旧验证证明。后台复核按地址比对，只对 `emailVerificationSource=certus` 的用户动手：
 
-  **这条启发式有已知误报，必须写明代价**：certus 的 `UpdatedAt` 在**任何**用户更新时都会 bump（`internal/identity/user.go` 的 `Update` 统一赋值），改显示名、改状态都算，不只是改邮箱。因此一次无关的画像变更就会给该用户写上 `emailSyncRequiredAt`，**静默延迟其邮件通知直到下次登录** —— 而本地会话最长 7 天、PWA 用户可能更久不重新授权。方向是安全的（延迟而非误发），但代价被低估了。
+  | 状态响应 | 处理 |
+  | --- | --- |
+  | 地址 == 本地 `email`，`email_verified: true` | 放行；本地若尚无证明则建立 `certus` 证明 |
+  | 地址 == 本地 `email`，`email_verified: false` | **已知当前地址未验证** → 清空证明并终态 `blocked`，不补发 |
+  | 地址 != 本地 `email` | 用户在 certus 改过地址：采纳新地址与新验证位，无需等待重新登录 |
+  | 响应无 `email` 字段 | 无法成对校验（certus 过旧或本客户端缺 `email` scope）→ `pending/identity_email_unavailable`，**绝不沿用本地验证位** |
 
-  **正解在上游且很便宜**：请 certus 在状态端点一并返回 `email`（已登记 [certus#10](https://github.com/devShuai/certus/issues/10)）。这对该客户端不构成任何新披露 —— 端点已按 consent 限定范围，而该客户端本来就从 ID Token 拿到过同一个地址。拿到成对的 `email + email_verified` 后，`emailSnapshotIssuedAt` / `emailSyncRequiredAt` 这套启发式连同它的误报可以整体删除，改邮箱且新地址已验证的场景也能立即恢复投递，不必等重新登录。**在 certus 落地该字段前，现有机制保持不变**（它在当前 API 下是正确的 fail-safe），但不应把它当作终态设计。
+  采纳新地址可能撞上 `UNIQUE (lower(email)) WHERE passwordHash IS NOT NULL`（仅 both 模式账号之间）：保持现状并 `pending/identity_email_conflict`，不得让一次撞车中断整批投递。该写入独立于状态同步事务执行 —— Postgres 里一条语句失败会毒化整个事务，合并会让一次邮箱冲突连带回滚掉状态更新。
+
+  `emailVerificationSource=local` 的独立证明不受 certus 状态影响。
+
+  > **历史**：v0.5.x 曾用 `emailSnapshotIssuedAt`（登录时的 ID Token `iat`）与状态端点 `updated_at` 比较来猜测"画像是否变过"，变过就写 `emailSyncRequiredAt` 并等重新登录。方向安全但误报极多——certus 的 `Update` 无条件赋值 `UpdatedAt`，改个显示名就会静默停掉该用户的全部邮件通知直到下次登录，而 PWA 用户可能很久不重新授权。certus#10 落地后两个字段与该启发式已整体删除。
 - **复核时机：按需 + 有界恢复任务。** Provider/Webhook 等一般外部动作在 `lastStatusSyncedAt` 超过 `IDENTITY_STATUS_TTL`（默认 1 小时）时，外呼前尝试取得每用户 single-flight 租约并复核。**certus 来源的 Email 更严格：每次实际发信前都必须取得本次投递的成功状态响应，不使用 1 小时缓存、也不对状态端点故障 fail-open**；全局限速只会把邮件延迟，不能让旧地址绕过检查。没抢到租约的 worker 进入短暂 pending，不能各自打 certus。另由每小时 `/api/cron/identity-status` 处理 `statusCheckFailureCount > 0`、以及 `statusReason IN (certus_locked, certus_disabled)` 且 `nextStatusCheckAt <= now()` 的用户，使网络恢复和 locked → active 不依赖新通知或新用量。`reauth_required` 不轮询（没有 consent 时只会持续 404），由新 OIDC 授权恢复。runner 限并发 10、客户端总速率低于上游限额并加抖动。
 
   **采集上报入口不做状态复核** —— certus 的 introspection 在 `user.Status != active` 时本来就返回 `{"active": false}`（`validateOAuthUserGrant` 里已校验），停用用户的上报在鉴权阶段就被拒了。再调一次状态端点是同一件事的第二次跨服务往返，而采集上报是每设备每小时的高频路径。残留窗口是 introspection 那 30–60 秒缓存，比 TTL 小得多，可接受。
@@ -396,7 +403,7 @@ erDiagram
 - **Back-Channel Logout 不置 suspended** —— 登出与禁用若推送同种 logout_token，分不出来；只按 sid/sub 删 Session（且按 sub 时仅 `authMethod=certus`，见 §7.1）。
 - **残留窗口与恢复窗口**：active 用户的状态变更通常在下一次出站且 TTL 到期时发现；certus 明确 locked/disabled 的用户由恢复 runner 最迟一个调度周期再次确认。都不是实时，运维承诺只能写 TTL/runner 周期，不能写“瞬时”。
 
-数据库约束：`certusSub` 与 `passwordHash` **至少有一个非空**，保证不存在无法登录的孤儿账号；并要求 `(certusSub IS NULL) = (certusLinkStatus IS NULL)`、`certusSub IS NULL OR lastStatusSyncedAt IS NOT NULL`、`(emailVerifiedAt IS NULL) = (emailVerificationSource IS NULL)`、`emailSyncRequiredAt IS NULL OR certusSub IS NOT NULL`。本地注册、登录、找回与管理员建号先对邮箱执行 `trim + Unicode/IDNA 域名规范化 + lowercase`，数据库再用部分表达式唯一索引 `UNIQUE (lower(email)) WHERE passwordHash IS NOT NULL` 兜底；所有本地邮箱查找同样走 `lower(email)`，从而拒绝 `Alice@Example.com` 与 `alice@example.com` 建成两个账号。`email` 的唯一性只对存在本地密码的账号强制 —— certus 允许用户改邮箱而 `sub` 不变，对 certus-only 用户的 email 加全局唯一会在改邮箱时炸掉，而用它做关联键则等于把账号接管的口子留给"谁能控制这个邮箱"。
+数据库约束：`certusSub` 与 `passwordHash` **至少有一个非空**，保证不存在无法登录的孤儿账号；并要求 `(certusSub IS NULL) = (certusLinkStatus IS NULL)`、`certusSub IS NULL OR lastStatusSyncedAt IS NOT NULL`、`(emailVerifiedAt IS NULL) = (emailVerificationSource IS NULL)`。本地注册、登录、找回与管理员建号先对邮箱执行 `trim + Unicode/IDNA 域名规范化 + lowercase`，数据库再用部分表达式唯一索引 `UNIQUE (lower(email)) WHERE passwordHash IS NOT NULL` 兜底；所有本地邮箱查找同样走 `lower(email)`，从而拒绝 `Alice@Example.com` 与 `alice@example.com` 建成两个账号。`email` 的唯一性只对存在本地密码的账号强制 —— certus 允许用户改邮箱而 `sub` 不变，对 certus-only 用户的 email 加全局唯一会在改邮箱时炸掉，而用它做关联键则等于把账号接管的口子留给"谁能控制这个邮箱"。
 
 **PasswordResetToken** — 仅本地账号
 `id, userId, tokenHash, expiresAt, usedAt` —— 只存哈希，30 分钟有效、单次使用。
@@ -645,7 +652,7 @@ sequenceDiagram
 
 **ID Token 必须逐项校验**：交给 `openid-client` 按 discovery 元数据验签并校验 `iss`、`aud`、`exp`、授权事务中的 `nonce`，同时拒绝 discovery 未声明的算法和 `alg: none`。应用只消费库校验完成后的 claims，不自己解析 JWT 后“顺手检查几个字段”。
 
-**JIT 建档**：首次登录时按 `sub` 创建 User 影子档，`baseCurrency` / `timezone` 取默认值并引导用户去设置页确认。后续每次登录把同一枚已校验 ID Token 中的 `email` / `email_verified` / `name` 与 `iat` 作为一个快照写入；邮箱值变化时先废掉旧验证证明，再按新 Claim 建立 `emailVerificationSource=certus`，同时清除 `emailSyncRequiredAt`。成功签发 ID Token 也把 `lastStatusSyncedAt` 至少推进到其 `iat`，因为 certus 在签发路径实时校验用户状态与 consent。回调映射到因 `certus_locked` / `certus_disabled` suspended 的旧用户时，只能解除 certus 原因，不能覆盖 `admin`。**绝不按 email 匹配已有账号** —— certus 自己也只把上游标记为已验证的邮箱用于关联，conspectus 没有理由比它更宽松。
+**JIT 建档**：首次登录时按 `sub` 创建 User 影子档，`baseCurrency` / `timezone` 取默认值并引导用户去设置页确认。后续每次登录把同一枚已校验 ID Token 中的 `email` / `email_verified` / `name` 与 `iat` 作为一个快照写入；邮箱值变化时先废掉旧验证证明，再按新 Claim 建立 `emailVerificationSource=certus`。成功签发 ID Token 也把 `lastStatusSyncedAt` 至少推进到其 `iat`，因为 certus 在签发路径实时校验用户状态与 consent。回调映射到因 `certus_locked` / `certus_disabled` suspended 的旧用户时，只能解除 certus 原因，不能覆盖 `admin`。**绝不按 email 匹配已有账号** —— certus 自己也只把上游标记为已验证的邮箱用于关联，conspectus 没有理由比它更宽松。
 
 #### 三层会话与失效边界
 
@@ -1084,11 +1091,11 @@ flowchart LR
 
 `NotificationChannel(id, userId, type(email|webhook), destination text?, secretCipher bytea?, deliveryMode(individual|daily_digest), digestLocalTime time?, enabled, createdAt, updatedAt)` —— `destination` **仅 webhook 使用**（URL）；email 渠道不落收件地址副本，投递时读 `User.email`，避免渠道复制出第二份可漂移地址。对 certus 快照，“实时读 User”仍不等于“实时读 certus”，所以还必须通过下述快照一致性门禁。`daily_digest` / `digestLocalTime` 只允许 email，Webhook 强制 individual。为保留审计，删除渠道同样落为 `enabled=false`。
 
-dispatcher 发送 Email 前必须同时满足：`User.email` 非空、`emailVerifiedAt` 非空、`emailSyncRequiredAt IS NULL`，并通过 §6.2 的 identity gate。对 `emailVerificationSource=certus`，**每个实际投递批次还必须在发信前成功调用状态端点**；失败/429 只延迟，不沿用旧结果发送。响应处理顺序固定为：先比较 `updated_at`，若快照后有变化则进入 `pending/email_snapshot_stale`，不得再消费该响应的验证位；只有版本仍与本地地址快照相容时，`email_verified=false` / Claim 缺失才表示**已知当前地址未验证**并把 Delivery 置终态 `blocked`。用户在 certus 提交 A→B 后，任何后续 Email 尝试都会先观察新的 `updated_at` 并阻断 A；只有重新登录取得 B + true 的成对快照后才唤醒仍适用的 Delivery。这个行为刻意放弃“无需重登自动恢复”，换取旧地址不再被继续投递。
+dispatcher 发送 Email 前必须同时满足：`User.email` 非空、`emailVerifiedAt` 非空，并通过 §6.2 的 identity gate。对 `emailVerificationSource=certus`，**每个实际投递批次还必须在发信前成功调用状态端点**；失败/429 只延迟，不沿用旧结果发送。响应按 §6.2 的地址比对表处理：地址一致时验证位才对本地地址生效，`email_verified=false` 表示**已知当前地址未验证**并把 Delivery 置终态 `blocked`；地址不同说明用户在 certus 改过，采纳新地址与新验证位后照常判定；响应缺 `email` 则 `pending/identity_email_unavailable`。用户在 certus 提交 A→B 并验证 B 后，下一轮投递即可恢复，不必等重新登录 —— 旧地址 A 在同一轮就被换掉，不存在继续向 A 投递的窗口。
 
-`both` 模式还要尊重验证来源：同一标准化地址若已由本地验证流程证明，certus 状态响应不得清空 `emailVerificationSource=local`；用户对当前 `User.email` 完成本地验证时可清除 `emailSyncRequiredAt`，因为地址所有权已由独立路径重新证明。但任何登录路径实际改写了 `User.email`，都必须先清掉旧证明并重新验证。禁止从“邮箱非空”推断为已验证。
+`both` 模式还要尊重验证来源：同一标准化地址若已由本地验证流程证明，certus 状态响应不得改写 `emailVerificationSource=local` 的地址或其证明 —— 该地址的所有权已由独立路径证明，certus 不再是它的权威。但任何登录路径实际改写了 `User.email`，都必须先清掉旧证明并重新验证。禁止从“邮箱非空”推断为已验证。
 
-**终态与可恢复延迟都必须让用户看得见。** 已知邮箱未验证产生的 `blocked` 不补发；地址快照待刷新的 `pending/email_snapshot_stale` 则在设置页提示“重新登录以确认当前邮箱”，登录后只唤醒 subject 仍适用的提醒。渠道设置页与通知中心必须在渠道层面展示真实原因（本地账号：去验证邮箱；certus 已知未验证：认证中心重发验证入口；certus 快照陈旧：重新登录入口），不能只把状态留在 Delivery 行里。Webhook 的 HMAC 密钥加密存储（复用 §9 的 envelope）、用户可见可轮换，轮换后旧签名立即失效。webhook URL 保存时即做一次带签名的验证性 POST（同样走 §9 的 SSRF 防护与超时），未通过则 `enabled=false`。
+**终态与可恢复延迟都必须让用户看得见。** 已知邮箱未验证产生的 `blocked` 不补发。渠道设置页与通知中心必须在渠道层面展示真实原因（本地账号：去验证邮箱；certus 已知未验证：认证中心重发验证入口），不能只把状态留在 Delivery 行里。`identity_email_unavailable` / `identity_email_conflict` 是部署侧问题而非用户可修的，属于运维告警而不是给用户的提示。Webhook 的 HMAC 密钥加密存储（复用 §9 的 envelope）、用户可见可轮换，轮换后旧签名立即失效。webhook URL 保存时即做一次带签名的验证性 POST（同样走 §9 的 SSRF 防护与超时），未通过则 `enabled=false`。
 
 **持久化 outbox**：
 
@@ -1118,7 +1125,7 @@ dispatcher 发送 Email 前必须同时满足：`User.email` 非空、`emailVeri
 | `price_change` | priceChange | 固定串 | PriceChange 行本身一次性 |
 | `connection_failed` | connection | `<armKey>` | `NotificationArmState`：转入失败态时取得本轮告警资格；连接恢复 ok 后清除状态，使下次失败时恢复告警资格；同步重试不换 key |
 
-**投递租约与发送前复核**：每分钟运行 `/api/cron/notification-dispatch`。直接发送只租 `digestId IS NULL` 的 Delivery，摘要子项只能由其 Digest 批次消费；两类 worker 都用 `FOR UPDATE SKIP LOCKED`，候选包括到期的 `pending`，也包括 `status=sending` 且 `leaseUntil <= now()` 的过期租约，租用时写随机 `leaseToken`。外呼前依次重读并检查：User 全局状态及 reason；存在可用身份（本地密码或 active certus link）；§6.2 identity gate；Channel/Rule 仍 enabled；subject 对应订阅、设备或阈值仍适用；Email 地址与验证快照成对有效。`statusReason=admin`、规则、渠道或 subject 永久失效才终态 `canceled`；`certus_locked` / `certus_disabled` 使用 `pending/identity_suspended_certus` 等待 runner 恢复；已知邮箱未验证才 `blocked`；`identity_status_stale`、`identity_reauth_required`、`email_snapshot_stale` 同样释放租约回 pending 并安排重试。Webhook 使用**当前** Channel URL/密钥，不使用 Event 里的旧副本。外呼结果回写必须匹配 `status=sending AND leaseToken=?`，迟到 worker 无权覆盖新租约；实际外呼失败按 1min / 5min / 30min 把状态放回 pending，次数耗尽才置终态 failed；Digest 进入终态（failed / canceled / blocked）时，同事务把尚未终态的子 Delivery 置为对应终态。进程在外部已接收、内部尚未标 sent 时崩溃仍可能造成一次外部重复，稳定 Event ID 供接收方去重，但不会丢内部事件。
+**投递租约与发送前复核**：每分钟运行 `/api/cron/notification-dispatch`。直接发送只租 `digestId IS NULL` 的 Delivery，摘要子项只能由其 Digest 批次消费；两类 worker 都用 `FOR UPDATE SKIP LOCKED`，候选包括到期的 `pending`，也包括 `status=sending` 且 `leaseUntil <= now()` 的过期租约，租用时写随机 `leaseToken`。外呼前依次重读并检查：User 全局状态及 reason；存在可用身份（本地密码或 active certus link）；§6.2 identity gate；Channel/Rule 仍 enabled；subject 对应订阅、设备或阈值仍适用；Email 地址与验证快照成对有效。`statusReason=admin`、规则、渠道或 subject 永久失效才终态 `canceled`；`certus_locked` / `certus_disabled` 使用 `pending/identity_suspended_certus` 等待 runner 恢复；已知邮箱未验证才 `blocked`；`identity_status_stale`、`identity_reauth_required`、`identity_email_unavailable`、`identity_email_conflict` 同样释放租约回 pending 并安排重试。Webhook 使用**当前** Channel URL/密钥，不使用 Event 里的旧副本。外呼结果回写必须匹配 `status=sending AND leaseToken=?`，迟到 worker 无权覆盖新租约；实际外呼失败按 1min / 5min / 30min 把状态放回 pending，次数耗尽才置终态 failed；Digest 进入终态（failed / canceled / blocked）时，同事务把尚未终态的子 Delivery 置为对应终态。进程在外部已接收、内部尚未标 sent 时崩溃仍可能造成一次外部重复，稳定 Event ID 供接收方去重，但不会丢内部事件。
 
 自部署 cron 和 Vercel Pro 均可满足分钟 dispatcher + 小时 scan；Vercel Hobby 只能每日运行时，部署检查必须要求配置外部调度器，或者明确把通知 SLA 降级为“每日一次”，不能继续宣称 09:00 和分钟级重试。
 
@@ -1283,7 +1290,7 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 | R9 | 部署形态有两种，配置漏项的概率翻倍 | 上线后才发现某项没配 | 冷启动校验配置格式，`/api/ready` 校验 DB/迁移，部署期登录 smoke test；三层各负其责 |
 | R10 | Vercel Hobby 只能每日 Cron，且 cron 任务数量有上限（历史为 2 个，以当时计划为准），无法满足本地 09:00、分钟级重试与全部任务端点 | 通知 SLA 与设计不符 | 完整托管形态要求 Pro 或外部调度器；Hobby 部署必须在 UI/文档中明确每日降级；端点较多时可合并为单一 cron 入口按表驱动内部分发，绕过数量上限 |
 | **R11** | **conspectus 依赖 certus 的三项功能与一项机器可读兼容性契约**：跨客户端内省（[certus#2](https://github.com/devShuai/certus/issues/2)）、本地邮箱验证（[#3](https://github.com/devShuai/certus/issues/3)）、状态端点（[#4](https://github.com/devShuai/certus/issues/4)），以及 `/api/v1/clients/me/capabilities`（[certus#9](https://github.com/devShuai/certus/issues/9)）。仅靠 Discovery、随机 404 或 `active:false` 无法验证客户端特定配置 | 旧版本或错配可能静默拒绝采集、阻断邮件或失去状态观测；公开 deep 探针还可能放大上游限流 | M0 先落机器可读契约并做真实 E2E；deep ready 用专用 Bearer、60s 缓存与 single-flight；每日独立任务复核兼容性；runbook 固定 certus 先升级、E2E 通过、再发布 conspectus 的顺序 |
-| **R11b** | **上游四项能力现已全部就绪**：跨客户端内省（[certus#2](https://github.com/devShuai/certus/issues/2)）、本地邮箱验证（[#3](https://github.com/devShuai/certus/issues/3)）、状态端点（[#4](https://github.com/devShuai/certus/issues/4)）与机器可读 capabilities（[#9](https://github.com/devShuai/certus/issues/9)，**已实现并关闭**）。仍未落地的只有 [certus#10](https://github.com/devShuai/certus/issues/10)（状态端点返回 `email`） | #10 未落地时，`emailSyncRequiredAt` 启发式继续生效：一次无关的画像更新也会把该用户的邮件通知延迟到下次登录（见 §6.2 邮箱段） | capabilities 已可用，deep ready 不再需要降级路径；#10 落地后可整体删除 `emailSnapshotIssuedAt` / `emailSyncRequiredAt` 这套启发式及其误报 |
+| **R11b** | **上游五项能力全部就绪**：跨客户端内省（[certus#2](https://github.com/devShuai/certus/issues/2)）、本地邮箱验证（[#3](https://github.com/devShuai/certus/issues/3)）、状态端点（[#4](https://github.com/devShuai/certus/issues/4)）、机器可读 capabilities（[#9](https://github.com/devShuai/certus/issues/9)）与状态端点返回 `email`（[#10](https://github.com/devShuai/certus/issues/10)），**均已实现并关闭** | 无未决上游依赖。部署顺序有约束：certus 必须先于 conspectus 升级，否则状态响应无 `email`，全部 certus 来源的邮件投递会 fail-closed 延迟为 `identity_email_unavailable` | `emailSnapshotIssuedAt` / `emailSyncRequiredAt` 启发式及其误报已随 #125 整体删除，改邮箱且新址已验证时下一轮即恢复投递 |
 
 **待确认**：
 

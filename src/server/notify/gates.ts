@@ -1,11 +1,12 @@
-import { db } from "@/server/db";
 import { fetchUserStatus } from "@/server/auth/certus-client-api";
 import { loadAuthConfig } from "@/server/auth/config";
+import { reconcileCertusEmail, writeCertusEmail } from "@/server/auth/email-reconcile";
 
 /**
- * 可恢复门禁的结构化原因（#116，design §7.6 deferredReason 词汇表）：
- * identity_status_stale / identity_reauth_required / email_snapshot_stale /
- * identity_suspended_certus。identity gate 的内部原因归一到这组稳定词。
+ * 可恢复门禁的结构化原因（design §7.6 deferredReason 词汇表）：
+ * identity_status_stale / identity_reauth_required / identity_email_unavailable /
+ * identity_email_conflict / identity_suspended_certus。identity gate 的内部原因
+ * 归一到这组稳定词。（email_snapshot_stale 随 #125 的启发式一并移除。）
  */
 export function toDeferredReason(gateReason: string): string {
   switch (gateReason) {
@@ -24,21 +25,21 @@ export type CertusEmailPrecheck =
   | { action: "block" };
 
 /**
- * certus 逐批复核（#116，§7.6）：emailVerificationSource=certus 的用户，每个实际
- * 投递批次发信前必须成功调用 certus 状态端点 —— 失败/429/404 只延迟
- * （fail-closed），不沿用旧结果发送。
+ * certus 逐批复核（§7.6）：emailVerificationSource=certus 的用户，每个实际投递
+ * 批次发信前必须成功调用 certus 状态端点 —— 失败/429/404 只延迟（fail-closed），
+ * 不沿用旧结果发送。
  *
- * 响应处理顺序固定（§7.6）：先比较 updated_at —— 快照后有变化则按 §6.2 写
- * emailSyncRequiredAt 并清 certus 来源证明（local 证明不动），本次不得再消费
- * 该响应的验证位；只有版本仍与本地地址快照相容时，email_verified=false/缺失
- * 才表示「已知当前地址未验证」→ blocked。
+ * 响应里的 email 与 email_verified 成对使用（certus#10）：地址一致时验证位才
+ * 说的是本地这个地址；不一致说明用户在 certus 改过，采纳新地址与新验证位。
+ * 地址缺失（certus 过旧或客户端无 email scope）同样 fail-closed。
  */
 export async function certusEmailPrecheck(
   user: {
     id: string;
     certusSub: string | null;
+    email: string | null;
+    emailVerifiedAt: Date | null;
     emailVerificationSource: string | null;
-    emailSnapshotIssuedAt: Date | null;
   },
   now: Date = new Date(),
 ): Promise<CertusEmailPrecheck> {
@@ -59,24 +60,16 @@ export async function certusEmailPrecheck(
     return { action: "defer", reason: "identity_status_stale" };
   }
 
-  const updatedAt = status.updatedAt;
-  if (updatedAt !== undefined) {
-    const snapshotAt = user.emailSnapshotIssuedAt;
-    if (snapshotAt === null || updatedAt.getTime() > snapshotAt.getTime()) {
-      // 画像在该邮箱快照后有变化：旧地址不得继续投递，等重新登录的成对快照
-      await db.user.updateMany({
-        where: { id: user.id, emailVerificationSource: "certus" },
-        data: {
-          emailSyncRequiredAt: now,
-          emailVerifiedAt: null,
-          emailVerificationSource: null,
-        },
-      });
-      return { action: "defer", reason: "email_snapshot_stale" };
-    }
+  const { verdict, data } = reconcileCertusEmail(user, status, now);
+  if (verdict === "unavailable") {
+    // 拿不到地址就无法判断验证位说的是不是本地这个地址，只能等
+    return { action: "defer", reason: "identity_email_unavailable" };
   }
-
-  if (status.emailVerified !== true) {
+  if ((await writeCertusEmail(user.id, data)) === "conflict") {
+    // 新地址已属于另一个账号；保持现状，等人工或下次登录解决
+    return { action: "defer", reason: "identity_email_conflict" };
+  }
+  if (verdict === "unverified") {
     return { action: "block" }; // 已知当前地址未验证（终态，不补发）
   }
   return { action: "proceed" };

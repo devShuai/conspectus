@@ -68,7 +68,6 @@ export async function unbindCertusFromUser(userId: string): Promise<void> {
       certusSub: null,
       certusLinkStatus: null,
       lastStatusSyncedAt: null,
-      emailSyncRequiredAt: null,
     },
   });
   await db.session.deleteMany({ where: { userId, authMethod: "certus" } });

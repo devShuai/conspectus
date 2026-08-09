@@ -185,11 +185,9 @@ async function preflight(
   }
 
   if (channel.type === "email") {
-    if (user.emailSyncRequiredAt) {
-      return { action: "defer", reason: "email_snapshot_stale" };
-    }
     if (!user.emailVerifiedAt) return { action: "block" };
-    // certus 来源证明：每个实际投递批次发信前逐批复核状态端点（§7.6/#116）
+    // certus 来源证明：每个实际投递批次发信前逐批复核状态端点（§7.6），
+    // 复核内部用地址成对校验验证位（#125）
     const precheck = await certusEmailPrecheck(user, now);
     if (precheck.action === "defer") return { action: "defer", reason: precheck.reason };
     if (precheck.action === "block") return { action: "block" };

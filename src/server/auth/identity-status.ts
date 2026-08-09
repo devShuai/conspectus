@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { db } from "@/server/db";
 import { fetchUserStatus, type UserStatusEvidence } from "./certus-client-api";
 import type { AuthConfig } from "./config";
+import { reconcileCertusEmail, writeCertusEmail } from "./email-reconcile";
 import { loadStartupConfig } from "./startup-config";
 
 /** 默认值；实际生效值由 loadStartupConfig 解析 IDENTITY_STATUS_TTL/MAX_STALE 得到（§12.4）。 */
@@ -191,26 +192,21 @@ async function applyStatus200(
     id: string;
     status: string;
     statusReason: string | null;
+    email: string | null;
+    emailVerifiedAt: Date | null;
     emailVerificationSource: string | null;
-    emailSnapshotIssuedAt: Date | null;
   },
   evidence: UserStatusEvidence,
   now: Date,
 ): Promise<IdentityRecheckOutcome> {
-  // §6.2 邮箱快照启发式（#116）：任何 200 响应都先比较 updated_at —— 快照后
-  // 画像有变化且证明来源是 certus 时，清 certus 证明并写 emailSyncRequiredAt；
-  // local 来源的独立证明不得被 certus 状态清除（§7.6 both 模式）。
-  const emailSyncData =
-    evidence.updatedAt !== undefined &&
-    user.emailVerificationSource === "certus" &&
-    (user.emailSnapshotIssuedAt === null ||
-      evidence.updatedAt.getTime() > user.emailSnapshotIssuedAt.getTime())
-      ? {
-          emailSyncRequiredAt: now,
-          emailVerifiedAt: null,
-          emailVerificationSource: null,
-        }
-      : {};
+  // §6.2 邮箱快照对账（#125）：只对 certus 来源的证明动手，local 来源的独立
+  // 证明不得被 certus 状态清除（§7.6 both 模式）。地址冲突时保持现状——这里
+  // 的职责是同步状态，邮箱对不上不该连带把状态同步也回滚掉，所以它独立于
+  // 下面的事务执行（Postgres 里一条语句失败会毒化整个事务）。
+  if (user.emailVerificationSource === "certus") {
+    const { data } = reconcileCertusEmail(user, evidence, now);
+    await writeCertusEmail(user.id, data);
+  }
 
   if (evidence.status === "locked" || evidence.status === "disabled") {
     const reason =
@@ -226,7 +222,6 @@ async function applyStatus200(
           statusCheckFailureCount: 0,
           nextStatusCheckAt: null,
           lastStatusSyncError: null,
-          ...emailSyncData,
         },
       });
       await tx.session.deleteMany({ where: { userId: user.id } });
@@ -249,7 +244,6 @@ async function applyStatus200(
         statusCheckFailureCount: 0,
         nextStatusCheckAt: null,
         lastStatusSyncError: null,
-        ...emailSyncData,
       },
     });
     // §7.6 身份恢复联动（#116）：恢复事件把身份类门禁延迟的 Delivery/Digest

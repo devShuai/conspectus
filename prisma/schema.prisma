@@ -76,8 +76,6 @@ model User {
   email         String?  @db.Text
   emailVerifiedAt DateTime?
   emailVerificationSource EmailVerificationSource?
-  emailSnapshotIssuedAt DateTime?
-  emailSyncRequiredAt DateTime?
   lastStatusSyncedAt DateTime?
   certusLinkStatus CertusLinkStatus?
   statusCheckFailureCount Int @default(0)

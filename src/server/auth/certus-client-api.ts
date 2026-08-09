@@ -18,9 +18,13 @@ export interface UserStatusEvidence {
   httpStatus: number;
   active?: boolean;
   status?: string;
+  /**
+   * certus#10：与 emailVerified 成对返回的地址。缺省表示 certus 版本过旧或本
+   * 客户端没有 email scope —— 此时无法完成成对校验，调用方必须 fail-closed。
+   */
+  email?: string;
   emailVerified?: boolean;
   hasUpdatedAt: boolean;
-  /** updated_at 解析后的时刻（§6.2 快照比较用，#116）；缺省/无法解析为 undefined。 */
   updatedAt?: Date;
   subjectFingerprint?: string;
   /** True when 404 body is empty or non-enumerating. */
@@ -162,7 +166,10 @@ export async function fetchUserStatus(
       leakedProfileFields: [],
     };
   }
-  const leakedProfileFields = ["email", "username", "name", "preferred_username"].filter(
+  // certus#10 起 email 是这个端点的契约字段，不再是泄漏：它必须与 email_verified
+  // 成对返回，否则后台任务无从判断那个布尔说的是不是自己留存的地址。username /
+  // name / preferred_username 仍然一个都不该出现。
+  const leakedProfileFields = ["username", "name", "preferred_username"].filter(
     (key) => key in body,
   );
   const sub = typeof body.sub === "string" ? body.sub : undefined;
@@ -172,6 +179,8 @@ export async function fetchUserStatus(
     httpStatus: response.status,
     active: status === "active",
     status,
+    email:
+      typeof body.email === "string" && body.email.length > 0 ? body.email : undefined,
     emailVerified:
       typeof body.email_verified === "boolean" ? body.email_verified : undefined,
     hasUpdatedAt:
@@ -269,11 +278,21 @@ export function evaluateUserStatusContract(input: {
         detail: `user_status=${input.consented.status} email_verified=${String(input.consented.emailVerified)} updated_at=${input.consented.hasUpdatedAt} sub_fp=${input.consented.subjectFingerprint ?? "?"}`,
       },
       {
+        // certus#10：验证位必须带着它所描述的地址一起来，否则后台投递只能
+        // fail-closed 延迟。这条检查的是探针账号确实收到了成对响应。
+        id: "email_paired_with_verification",
+        ok: input.consented.email !== undefined,
+        detail:
+          input.consented.email !== undefined
+            ? "email present alongside email_verified"
+            : "email missing — certus too old, or this client lacks the email scope",
+      },
+      {
         id: "no_profile_leak",
         ok: input.consented.leakedProfileFields.length === 0,
         detail:
           input.consented.leakedProfileFields.length === 0
-            ? "no email/username/name fields"
+            ? "no username/name fields"
             : `leaked=${input.consented.leakedProfileFields.join(",")}`,
       },
     );

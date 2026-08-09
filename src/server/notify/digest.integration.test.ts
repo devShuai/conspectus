@@ -7,12 +7,17 @@ import { emitEvent } from "./scan";
 import { dispatchDueDeliveries } from "./dispatch";
 import { dispatchDueDigests, DIGEST_RETRY_MS } from "./digest";
 
-const { sendEmailMock } = vi.hoisted(() => ({
+const { sendEmailMock, fetchUserStatusMock } = vi.hoisted(() => ({
   sendEmailMock: vi.fn(),
+  fetchUserStatusMock: vi.fn(),
 }));
 
 vi.mock("@/server/auth/email-sender", () => ({
   sendEmail: sendEmailMock,
+}));
+
+vi.mock("@/server/auth/certus-client-api", () => ({
+  fetchUserStatus: fetchUserStatusMock,
 }));
 
 const DISABLED = !process.env.TEST_DATABASE_URL;
@@ -21,7 +26,8 @@ function uniqueSub(prefix: string): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
-async function setupUser(opts: { emailVerified?: boolean; emailSyncRequired?: boolean } = {}) {
+async function setupUser(opts: { emailVerified?: boolean; certusSourced?: boolean } = {}) {
+  const source = opts.certusSourced ? "certus" : "local";
   return db.user.create({
     data: {
       certusSub: uniqueSub("digest91"),
@@ -30,8 +36,7 @@ async function setupUser(opts: { emailVerified?: boolean; emailSyncRequired?: bo
       timezone: "Asia/Shanghai",
       email: `d91-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@example.com`,
       emailVerifiedAt: opts.emailVerified === false ? null : new Date(),
-      emailVerificationSource: opts.emailVerified === false ? null : "local",
-      emailSyncRequiredAt: opts.emailSyncRequired ? new Date() : null,
+      emailVerificationSource: opts.emailVerified === false ? null : source,
     },
   });
 }
@@ -223,8 +228,18 @@ describe.skipIf(DISABLED)("daily_digest pipeline (#91)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("stale email snapshot defers the batch to pending without burning attempts", async () => {
-    const user = await setupUser({ emailSyncRequired: true });
+  // #125：可恢复的邮箱门禁现在来自逐批复核 —— certus 没给出地址就无法成对校验
+  it("an unpairable certus response defers the batch without burning attempts", async () => {
+    const user = await setupUser({ certusSourced: true });
+    fetchUserStatusMock.mockResolvedValue({
+      httpStatus: 200,
+      status: "active",
+      active: true,
+      emailVerified: true, // 有验证位但没有地址：不可采信
+      hasUpdatedAt: false,
+      notFoundOpaque: false,
+      leakedProfileFields: [],
+    });
     const rule = await setupRule(user.id);
     const channel = await setupDigestChannel(user.id);
     const event = await emit(user.id, rule.id, `d91-h-${Date.now()}`);
@@ -241,7 +256,7 @@ describe.skipIf(DISABLED)("daily_digest pipeline (#91)", () => {
     });
     expect(after.status).toBe("pending");
     expect(after.attempts).toBe(0);
-    expect(after.deferredReason).toBe("email_snapshot_stale"); // #116：结构化门禁原因
+    expect(after.deferredReason).toBe("identity_email_unavailable"); // 结构化门禁原因
     expect(after.nextAttemptAt).not.toBeNull();
     expect(after.nextAttemptAt!.getTime()).toBeGreaterThan(now.getTime());
     const child = await db.notificationDelivery.findFirstOrThrow({

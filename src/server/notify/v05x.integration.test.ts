@@ -36,8 +36,9 @@ function uniqueSub(prefix: string): string {
 
 async function setupCertusEmailUser(opts: {
   source: "certus" | "local";
-  snapshotIssuedAt?: Date;
   suspended?: boolean;
+  /** both 模式（本地密码 + certus 关联）；本地邮箱唯一索引只覆盖这类行。 */
+  localPassword?: boolean;
 }) {
   return db.user.create({
     data: {
@@ -45,10 +46,10 @@ async function setupCertusEmailUser(opts: {
       certusLinkStatus: "active",
       lastStatusSyncedAt: new Date(),
       timezone: "Asia/Shanghai",
+      passwordHash: opts.localPassword ? "x".repeat(60) : null,
       email: `v05x-${Date.now()}-${Math.random().toString(36).slice(2, 6)}@example.com`,
       emailVerifiedAt: new Date(),
       emailVerificationSource: opts.source,
-      emailSnapshotIssuedAt: opts.snapshotIssuedAt ?? new Date(),
       status: opts.suspended ? "suspended" : "active",
       statusReason: opts.suspended ? "certus_locked" : null,
     },
@@ -91,11 +92,18 @@ async function setupDueDelivery(userId: string, channelId: string) {
   });
 }
 
-function status200(body: { status?: string; emailVerified?: boolean; updatedAt?: Date }) {
+function status200(body: {
+  status?: string;
+  /** #125：省略即模拟 certus 过旧 / 无 email scope，调用方必须 fail-closed。 */
+  email?: string;
+  emailVerified?: boolean;
+  updatedAt?: Date;
+}) {
   return {
     httpStatus: 200,
     active: (body.status ?? "active") === "active",
     status: body.status ?? "active",
+    email: body.email,
     emailVerified: body.emailVerified,
     hasUpdatedAt: body.updatedAt !== undefined,
     updatedAt: body.updatedAt,
@@ -158,13 +166,13 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("direct email: certus precheck proceeds when snapshot is current and verified", async () => {
-    const snapshot = new Date(Date.now() - 2 * 3_600_000);
-    const user = await setupCertusEmailUser({ source: "certus", snapshotIssuedAt: snapshot });
+  it("direct email: certus precheck proceeds when the address matches and is verified", async () => {
+    const user = await setupCertusEmailUser({ source: "certus" });
     const channel = await setupEmailChannel(user.id);
     const delivery = await setupDueDelivery(user.id, channel.id);
     fetchUserStatusMock.mockResolvedValue(
-      status200({ emailVerified: true, updatedAt: new Date(Date.now() - 3 * 3_600_000) }),
+      // #125：验证位与地址成对，且地址就是本地这一个 —— updated_at 不再参与判定
+      status200({ email: user.email!, emailVerified: true, updatedAt: new Date() }),
     );
 
     await dispatchDueDeliveries(new Date());
@@ -179,13 +187,12 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("direct email: certus email_verified=false on a compatible snapshot blocks terminally", async () => {
-    const snapshot = new Date(Date.now() - 2 * 3_600_000);
-    const user = await setupCertusEmailUser({ source: "certus", snapshotIssuedAt: snapshot });
+  it("direct email: certus email_verified=false on the same address blocks terminally", async () => {
+    const user = await setupCertusEmailUser({ source: "certus" });
     const channel = await setupEmailChannel(user.id);
     const delivery = await setupDueDelivery(user.id, channel.id);
     fetchUserStatusMock.mockResolvedValue(
-      status200({ emailVerified: false, updatedAt: new Date(Date.now() - 3 * 3_600_000) }),
+      status200({ email: user.email!, emailVerified: false }),
     );
 
     await dispatchDueDeliveries(new Date());
@@ -199,31 +206,115 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("direct email: newer updated_at defers with email_snapshot_stale and rewrites the user row", async () => {
-    const snapshot = new Date(Date.now() - 2 * 3_600_000);
-    const user = await setupCertusEmailUser({ source: "certus", snapshotIssuedAt: snapshot });
+  /*
+   * #125：旧实现在这里比较 updated_at，只要它晚于登录快照就判定「可能变过」，
+   * 延迟投递并等用户重新登录。certus 侧任何画像编辑（改个显示名就够）都会
+   * bump updated_at，于是这条路径误报极多。现在直接比地址。
+   */
+  it("direct email: a changed address is adopted from certus, not deferred", async () => {
+    const user = await setupCertusEmailUser({ source: "certus" });
     const channel = await setupEmailChannel(user.id);
     const delivery = await setupDueDelivery(user.id, channel.id);
+    const moved = `moved-${Date.now()}@example.com`;
     fetchUserStatusMock.mockResolvedValue(
-      status200({ emailVerified: true, updatedAt: new Date() }), // 快照后画像有变化
+      // 地址变了但新地址已验证：采纳并照发，不必等下次登录
+      status200({ email: moved, emailVerified: true, updatedAt: new Date() }),
     );
 
-    const now = new Date();
-    await dispatchDueDeliveries(now);
+    await dispatchDueDeliveries(new Date());
+
+    const after = await db.notificationDelivery.findUniqueOrThrow({
+      where: { id: delivery.id },
+    });
+    expect(after.status).toBe("sent");
+    const userAfter = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(userAfter.email).toBe(moved);
+    expect(userAfter.emailVerifiedAt).not.toBeNull();
+    expect(userAfter.emailVerificationSource).toBe("certus");
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("direct email: a changed but unverified address is adopted and blocks", async () => {
+    const user = await setupCertusEmailUser({ source: "certus" });
+    const channel = await setupEmailChannel(user.id);
+    const delivery = await setupDueDelivery(user.id, channel.id);
+    const moved = `unverified-${Date.now()}@example.com`;
+    fetchUserStatusMock.mockResolvedValue(
+      status200({ email: moved, emailVerified: false, updatedAt: new Date() }),
+    );
+
+    await dispatchDueDeliveries(new Date());
+
+    const after = await db.notificationDelivery.findUniqueOrThrow({
+      where: { id: delivery.id },
+    });
+    expect(after.status).toBe("blocked");
+    expect(sendEmailMock).not.toHaveBeenCalled(); // 绝不向未验证的新地址发信
+    const userAfter = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(userAfter.email).toBe(moved);
+    expect(userAfter.emailVerifiedAt).toBeNull();
+
+    await db.user.delete({ where: { id: user.id } });
+  });
+
+  it("direct email: a response without an address defers fail-closed", async () => {
+    const user = await setupCertusEmailUser({ source: "certus" });
+    const channel = await setupEmailChannel(user.id);
+    const delivery = await setupDueDelivery(user.id, channel.id);
+    // certus 早于 e432373，或本客户端没有 email scope：无法成对校验
+    fetchUserStatusMock.mockResolvedValue(status200({ emailVerified: true }));
+
+    await dispatchDueDeliveries(new Date());
 
     const after = await db.notificationDelivery.findUniqueOrThrow({
       where: { id: delivery.id },
     });
     expect(after.status).toBe("pending");
     expect(after.attempts).toBe(0); // 门禁延迟不烧外呼 attempts
-    expect(after.deferredReason).toBe("email_snapshot_stale");
-    expect(sendEmailMock).not.toHaveBeenCalled(); // 不得再消费该响应的验证位
-    const userAfter = await db.user.findUniqueOrThrow({ where: { id: user.id } });
-    expect(userAfter.emailSyncRequiredAt).not.toBeNull();
-    expect(userAfter.emailVerifiedAt).toBeNull();
-    expect(userAfter.emailVerificationSource).toBeNull();
+    expect(after.deferredReason).toBe("identity_email_unavailable");
+    expect(sendEmailMock).not.toHaveBeenCalled(); // 不得沿用本地验证位
 
     await db.user.delete({ where: { id: user.id } });
+  });
+
+  /*
+   * users_local_email_unique 是分区唯一索引，只覆盖 passwordHash IS NOT NULL 的
+   * 行，所以采纳新地址撞车只可能发生在 both 模式账号之间 —— 但那一撞会让整批
+   * 投递抛错中断，必须收成一次延迟。
+   */
+  it("direct email: adopting an address another local account holds defers, not crashes", async () => {
+    const taken = `taken-${Date.now()}@example.com`;
+    const other = await db.user.create({
+      // certusSub 必须与 certusLinkStatus / lastStatusSyncedAt 成套（users_certus_link_pairing）
+      data: {
+        certusSub: uniqueSub("v05x-other"),
+        certusLinkStatus: "active",
+        lastStatusSyncedAt: new Date(),
+        passwordHash: "x".repeat(60),
+        email: taken,
+        timezone: "UTC",
+      },
+    });
+    const user = await setupCertusEmailUser({ source: "certus", localPassword: true });
+    const channel = await setupEmailChannel(user.id);
+    const delivery = await setupDueDelivery(user.id, channel.id);
+    fetchUserStatusMock.mockResolvedValue(
+      status200({ email: taken, emailVerified: true, updatedAt: new Date() }),
+    );
+
+    await dispatchDueDeliveries(new Date());
+
+    const after = await db.notificationDelivery.findUniqueOrThrow({
+      where: { id: delivery.id },
+    });
+    expect(after.status).toBe("pending");
+    expect(after.deferredReason).toBe("identity_email_conflict");
+    const userAfter = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(userAfter.email).not.toBe(taken); // 冲突时保持现状
+
+    await db.user.delete({ where: { id: user.id } });
+    await db.user.delete({ where: { id: other.id } });
   });
 
   it("direct email: precheck failure defers fail-closed (429/网络), 404 means reauth", async () => {
@@ -269,8 +360,7 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
   });
 
   it("digest email: per-batch certus precheck blocks batch + children together", async () => {
-    const snapshot = new Date(Date.now() - 2 * 3_600_000);
-    const user = await setupCertusEmailUser({ source: "certus", snapshotIssuedAt: snapshot });
+    const user = await setupCertusEmailUser({ source: "certus" });
     const channel = await setupEmailChannel(user.id, "daily_digest");
     const rule = await db.notificationRule.create({
       data: { userId: user.id, type: "renewal_due", config: { daysBefore: [1] } },
@@ -291,7 +381,7 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
       data: { scheduledAt: new Date(Date.now() - 60_000) },
     });
     fetchUserStatusMock.mockResolvedValue(
-      status200({ emailVerified: false, updatedAt: new Date(Date.now() - 3 * 3_600_000) }),
+      status200({ email: user.email!, emailVerified: false }),
     );
 
     await dispatchDueDigests(new Date());
@@ -344,12 +434,13 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("status runner writes emailSyncRequiredAt on newer updated_at (certus source only)", async () => {
-    const snapshot = new Date(Date.now() - 2 * 3_600_000);
-    const certusUser = await setupCertusEmailUser({ source: "certus", snapshotIssuedAt: snapshot });
-    const localUser = await setupCertusEmailUser({ source: "local", snapshotIssuedAt: snapshot });
+  it("status runner adopts a changed address, and never touches a local proof", async () => {
+    const certusUser = await setupCertusEmailUser({ source: "certus" });
+    const localUser = await setupCertusEmailUser({ source: "local" });
+    const localAddressBefore = localUser.email;
+    const moved = `runner-moved-${Date.now()}@example.com`;
     fetchUserStatusMock.mockResolvedValue(
-      status200({ emailVerified: true, updatedAt: new Date() }),
+      status200({ email: moved, emailVerified: true, updatedAt: new Date() }),
     );
 
     const outcome = await recheckIdentityStatus({
@@ -360,11 +451,11 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
     });
     expect(outcome.kind).toBe("active");
     const after = await db.user.findUniqueOrThrow({ where: { id: certusUser.id } });
-    expect(after.emailSyncRequiredAt).not.toBeNull();
-    expect(after.emailVerifiedAt).toBeNull();
-    expect(after.emailVerificationSource).toBeNull();
+    expect(after.email).toBe(moved);
+    expect(after.emailVerifiedAt).not.toBeNull();
+    expect(after.emailVerificationSource).toBe("certus");
 
-    // local 独立证明不得被 certus 状态响应清除（§7.6 both 模式）
+    // local 独立证明不得被 certus 状态响应改写（§7.6 both 模式）
     await recheckIdentityStatus({
       userId: localUser.id,
       certusSub: localUser.certusSub!,
@@ -372,7 +463,7 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
       ttlMs: 0,
     });
     const localAfter = await db.user.findUniqueOrThrow({ where: { id: localUser.id } });
-    expect(localAfter.emailSyncRequiredAt).toBeNull();
+    expect(localAfter.email).toBe(localAddressBefore);
     expect(localAfter.emailVerifiedAt).not.toBeNull();
     expect(localAfter.emailVerificationSource).toBe("local");
 
@@ -425,28 +516,13 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("login with a fresh verified pair clears emailSyncRequiredAt and wakes email-deferred rows", async () => {
-    const user = await setupCertusEmailUser({
-      source: "certus",
-      snapshotIssuedAt: new Date(Date.now() - 2 * 3_600_000),
-    });
+  it("login re-establishes a certus proof for the address it was issued for", async () => {
+    const user = await setupCertusEmailUser({ source: "certus" });
     await db.user.update({
       where: { id: user.id },
-      data: {
-        emailSyncRequiredAt: new Date(),
-        emailVerifiedAt: null,
-        emailVerificationSource: null,
-      },
-    });
-    const channel = await setupEmailChannel(user.id);
-    const delivery = await setupDueDelivery(user.id, channel.id);
-    const future = new Date(Date.now() + 3_600_000);
-    await db.notificationDelivery.update({
-      where: { id: delivery.id },
-      data: { deferredReason: "email_snapshot_stale", nextAttemptAt: future },
+      data: { emailVerifiedAt: null, emailVerificationSource: null },
     });
 
-    const before = new Date();
     await upsertCertusUser({
       sub: user.certusSub!,
       email: user.email!,
@@ -455,19 +531,18 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
     });
 
     const after = await db.user.findUniqueOrThrow({ where: { id: user.id } });
-    expect(after.emailSyncRequiredAt).toBeNull();
+    expect(after.emailVerifiedAt).not.toBeNull();
     expect(after.emailVerificationSource).toBe("certus");
-    const deliveryAfter = await db.notificationDelivery.findUniqueOrThrow({
-      where: { id: delivery.id },
-    });
-    expect(deliveryAfter.nextAttemptAt!.getTime()).toBeLessThan(future.getTime());
-    expect(deliveryAfter.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(before.getTime() - 5_000);
 
     await db.user.delete({ where: { id: user.id } });
   });
 
-  it("local email verification clears emailSyncRequiredAt and wakes email-deferred rows", async () => {
-    // both 模式用户：本地密码 + certus 关联（emailSyncRequiredAt 的 CHECK 要求 certusSub 非空）
+  /*
+   * #125 之后本地验证不再需要「清除快照标记 + 唤醒延迟行」：地址成对校验让
+   * 门禁在下一轮复核时自行判定，延迟行按各自的退避重试恢复。这里保住的是它
+   * 真正的职责——把证明来源接管为 local，此后 certus 状态不得再改写它。
+   */
+  it("local email verification takes over the proof and certus stops touching it", async () => {
     const user = await db.user.create({
       data: {
         certusSub: uniqueSub("v05x-both"),
@@ -475,27 +550,29 @@ describe.skipIf(DISABLED)("notification v0.5.x clauses (#116)", () => {
         lastStatusSyncedAt: new Date(),
         passwordHash: "x".repeat(60),
         email: `v05x-both-${Date.now()}@example.com`,
-        emailSyncRequiredAt: new Date(),
       },
-    });
-    const channel = await setupEmailChannel(user.id);
-    const delivery = await setupDueDelivery(user.id, channel.id);
-    const future = new Date(Date.now() + 3_600_000);
-    await db.notificationDelivery.update({
-      where: { id: delivery.id },
-      data: { deferredReason: "email_snapshot_stale", nextAttemptAt: future },
     });
 
     const token = await issueEmailVerificationToken(user.id, user.email!);
     await consumeEmailVerificationToken(token);
 
     const after = await db.user.findUniqueOrThrow({ where: { id: user.id } });
-    expect(after.emailSyncRequiredAt).toBeNull();
+    expect(after.emailVerifiedAt).not.toBeNull();
     expect(after.emailVerificationSource).toBe("local");
-    const deliveryAfter = await db.notificationDelivery.findUniqueOrThrow({
-      where: { id: delivery.id },
+
+    // certus 之后报告另一个地址也不得改写本地证明
+    fetchUserStatusMock.mockResolvedValue(
+      status200({ email: `elsewhere-${Date.now()}@example.com`, emailVerified: true }),
+    );
+    await recheckIdentityStatus({
+      userId: user.id,
+      certusSub: user.certusSub!,
+      config: FAKE_CONFIG,
+      ttlMs: 0,
     });
-    expect(deliveryAfter.nextAttemptAt!.getTime()).toBeLessThan(future.getTime());
+    const settled = await db.user.findUniqueOrThrow({ where: { id: user.id } });
+    expect(settled.email).toBe(after.email);
+    expect(settled.emailVerificationSource).toBe("local");
 
     await db.user.delete({ where: { id: user.id } });
   });

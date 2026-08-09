@@ -116,19 +116,13 @@ export async function dispatchDueDigests(now: Date = new Date()): Promise<{
     }
 
     if (channel.type === "email") {
-      if (user.emailSyncRequiredAt) {
-        // 邮箱快照待刷新是可恢复门禁：回 pending 延迟，不是 blocked（#91）
-        await deferDigest(digest.id, leaseToken, "email_snapshot_stale", now);
-        deferred++;
-        continue;
-      }
       if (!user.emailVerifiedAt) {
         // 已知未验证：Digest 与子 Delivery 一并 blocked（终态，不补发）
         await finalizeDigest(digest.id, leaseToken, "blocked", now);
         blocked++;
         continue;
       }
-      // certus 来源证明：发信前逐批成功复核状态端点（§7.6/#116），失败只延迟
+      // certus 来源证明：发信前逐批成功复核状态端点（§7.6），失败只延迟
       const precheck = await certusEmailPrecheck(user, now);
       if (precheck.action === "defer") {
         await deferDigest(digest.id, leaseToken, precheck.reason, now);

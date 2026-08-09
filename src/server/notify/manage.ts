@@ -362,24 +362,22 @@ export async function saveRule(input: {
 }
 
 /**
- * 邮箱投递门禁的三态展示（§7.6「渠道层面展示真实原因」，#115/#116）：
- * 本地未验证 → 去验证邮箱；certus 未验证 → 认证中心重发验证；快照陈旧 → 重新登录。
+ * 邮箱投递门禁的展示态（§7.6「渠道层面展示真实原因」，#115）：
+ * 本地未验证 → 去验证邮箱；certus 未验证 → 认证中心重发验证。
+ * （snapshot_stale 随 #125 移除：地址成对校验后不再需要「重新登录以确认邮箱」。）
  */
 export type EmailGateState =
   | "no_email"
   | "verified"
   | "local_unverified"
-  | "certus_unverified"
-  | "snapshot_stale";
+  | "certus_unverified";
 
 export function emailGateState(user: {
   email: string | null;
   emailVerifiedAt: Date | null;
-  emailSyncRequiredAt: Date | null;
   passwordHash: string | null;
 }): EmailGateState {
   if (!user.email) return "no_email";
-  if (user.emailSyncRequiredAt) return "snapshot_stale";
   if (user.emailVerifiedAt) return "verified";
   return user.passwordHash ? "local_unverified" : "certus_unverified";
 }

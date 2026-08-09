@@ -37,13 +37,11 @@ const GATE_TAG: Record<Exclude<EmailGateState, "verified">, { label: string; cla
   no_email: { label: "未设置邮箱", className: "warn" },
   local_unverified: { label: "邮箱未验证", className: "warn" },
   certus_unverified: { label: "认证中心未验证", className: "warn" },
-  snapshot_stale: { label: "快照陈旧", className: "warn" },
 };
 
 const GATE_BANNER: Record<Exclude<EmailGateState, "verified" | "no_email">, string> = {
   local_unverified: "请完成本地邮箱验证；验证后新提醒即可投递，期间的提醒不会补发。",
   certus_unverified: "请到认证中心完成邮箱验证；验证后新提醒即可投递，期间的提醒不会补发。",
-  snapshot_stale: "认证中心里的账户信息有更新，请重新登录以确认当前邮箱后恢复投递。",
 };
 
 export default async function NotificationsSettingsPage() {
@@ -64,7 +62,6 @@ export default async function NotificationsSettingsPage() {
       select: {
         email: true,
         emailVerifiedAt: true,
-        emailSyncRequiredAt: true,
         passwordHash: true,
       },
     }),
@@ -86,8 +83,7 @@ export default async function NotificationsSettingsPage() {
 
       {hasEnabledEmail && gate !== "verified" && gate !== "no_email" && (
         <p className="form-error" role="alert">
-          邮件渠道当前不可投递：账户邮箱（{user?.email ?? "未设置"}）
-          {gate === "snapshot_stale" ? "的验证快照已过期" : "未完成验证"}。
+          邮件渠道当前不可投递：账户邮箱（{user?.email ?? "未设置"}）未完成验证。
           {GATE_BANNER[gate]}
         </p>
       )}
