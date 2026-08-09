@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { currentAppSession } from "@/server/auth/current-session";
 import AppNav from "@/components/app-nav";
+import InstallPrompt from "@/components/install-prompt";
 
 export const dynamic = "force-dynamic";
 
@@ -15,6 +16,7 @@ export default async function AppLayout({
     <div className="app-layout">
       {children}
       <AppNav />
+      <InstallPrompt />
     </div>
   );
 }

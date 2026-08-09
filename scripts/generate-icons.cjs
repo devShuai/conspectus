@@ -14,5 +14,6 @@ fs.mkdirSync("public/icons", { recursive: true });
 Promise.all([
   sharp(Buffer.from(svg)).resize(192, 192).png().toFile("public/icons/icon-192.png"),
   sharp(Buffer.from(svg)).resize(512, 512).png().toFile("public/icons/icon-512.png"),
+  sharp(Buffer.from(svg)).resize(192, 192).png().toFile("public/icons/icon-192-maskable.png"),
   sharp(Buffer.from(svg)).resize(512, 512).png().toFile("public/icons/icon-512-maskable.png"),
 ]).then(() => console.log("icons generated"));

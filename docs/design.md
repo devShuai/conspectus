@@ -1154,7 +1154,7 @@ conspectus 的高频使用场景是"随手查一眼这个月花了多少 / 这�
 
 **Web Push**：PWA 让它成为可能的第三个通知渠道（现有渠道是邮件与 Webhook），但**不进 V1**。原因是它需要 VAPID 密钥、订阅生命周期管理、失效订阅清理，且 iOS 上必须先"添加到主屏幕"才能收到 —— 这个前置条件会让相当一部分用户以为功能坏了。等 PWA 的安装率有数据了再评估。
 
-**资产现状**：`public/icons/` 已有 `icon-192.png`、`icon-512.png` 与 `icon-512-maskable.png`（基于 `docs/assets/logo-mark.svg` 出图）；仅缺 192 的 maskable 变体，剩余出图见 #121-11。源设计说明与 `AppLogo.tsx` 模板仍保留在 [design/logo/README-snippet.md](../design/logo/README-snippet.md)，并非运行时资产路径。
+**资产现状**：`public/icons/` 已有 `icon-192.png`、`icon-512.png` 与两个尺寸的 maskable 变体（`icon-192-maskable.png` 由 #121-11 补齐；均基于 `docs/assets/logo-mark.svg` 出图）。源设计说明与 `AppLogo.tsx` 模板仍保留在 [design/logo/README-snippet.md](../design/logo/README-snippet.md)，并非运行时资产路径。
 
 ---
 
