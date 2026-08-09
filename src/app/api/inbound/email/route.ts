@@ -16,6 +16,7 @@ import {
   recordInboundEmail,
   verifyInboundSignature,
 } from "@/server/import/inbound";
+import { parseInboundEmail } from "@/server/import/parse-inbound";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -120,6 +121,19 @@ export async function POST(request: Request): Promise<NextResponse> {
     return accepted();
   }
 
-  await recordInboundEmail(user, payload.data, loadCredentialKeyring());
+  const recorded = await recordInboundEmail(user, payload.data, loadCredentialKeyring());
+  // #60：落库成功后同请求内触发解析（pending → parsed/failed）。解析失败
+  // 绝不影响 202 —— 重放幂等兜底，pending 行可由补偿任务重试；日志脱敏。
+  if (recorded === "created") {
+    try {
+      await parseInboundEmail(
+        user.id,
+        payload.data.messageId,
+        loadCredentialKeyring(),
+      );
+    } catch {
+      console.log(JSON.stringify({ event: "inbound_email_parse_error" }));
+    }
+  }
   return accepted();
 }

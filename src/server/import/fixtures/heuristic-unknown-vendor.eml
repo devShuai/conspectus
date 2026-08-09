@@ -1,0 +1,14 @@
+From: Acme Billing <billing@acme-saas.io>
+To: u-abcdefghijklmnopqrstuvwxyz@in.example.test
+Subject: Your Acme receipt
+Date: Wed, 05 Aug 2026 12:00:00 +0000
+Message-ID: <acme-20260805-009@acme-saas.io>
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+Hi,
+
+Your subscription was charged USD 42.50 on 2026-08-05.
+
+Thanks,
+Acme

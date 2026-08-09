@@ -1,0 +1,22 @@
+From: Jane Doe <jane.doe@example.com>
+To: u-abcdefghijklmnopqrstuvwxyz@in.example.test
+Subject: Fwd: Your Netflix receipt
+Date: Sat, 01 Aug 2026 19:10:03 +0000
+Message-ID: <fwd-20260801-002@example.com>
+Content-Type: text/plain; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+---------- Forwarded message ---------
+From: Netflix <info@mailer.netflix.com>
+Date: Sat, Aug 1, 2026 at 6:02 PM
+Subject: Your Netflix receipt
+To: jane.doe@example.com
+
+Hi Jane,
+
+Your payment of $15.49 was received on August 1, 2026.
+
+Plan: Standard
+Invoice: NF-2026-0801-ABC123
+
+The Netflix Team

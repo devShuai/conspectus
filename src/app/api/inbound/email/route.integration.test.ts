@@ -187,7 +187,9 @@ describe.skipIf(DISABLED)("POST /api/inbound/email (#58)", () => {
     const row = await db.inboundEmail.findUniqueOrThrow({
       where: { userId_messageId: { userId: user.id, messageId } },
     });
-    expect(row.parseStatus).toBe("pending");
+    // #60：落库后同请求内已触发解析；该 fixture 无规则命中且正文无日期，
+    // 按 fail-closed 置 failed（不产草稿、不猜值）
+    expect(row.parseStatus).toBe("failed");
     expect(row.fromAddr).toBe("billing@vendor.test");
     expect(row.rawRetainedUntil).not.toBeNull();
     const plaintext = decryptCredential(row.rawCipher!, loadCredentialKeyring());

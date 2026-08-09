@@ -1,0 +1,21 @@
+From: Apple <no_reply@email.apple.com>
+To: u-abcdefghijklmnopqrstuvwxyz@in.example.test
+Subject: =?UTF-8?B?5oKo55qEIEFwcGxlIOaUtuaNrg==?=
+Date: Wed, 05 Aug 2026 02:31:00 +0000
+Message-ID: <ap-20260805-005@email.apple.com>
+Content-Type: text/html; charset="utf-8"
+Content-Transfer-Encoding: 8bit
+
+<html>
+<head><title>Apple Receipt</title><style>p { margin: 0; }</style></head>
+<body>
+<p>尊敬的客户，您好：</p>
+<p>感谢您购买 iCloud+ 200GB，您的付款已收到。</p>
+<table>
+<tr><td>金额</td><td>¥21.00</td></tr>
+<tr><td>日期</td><td>2026年8月5日</td></tr>
+<tr><td>订单号</td><td>MQ8XYZ1234</td></tr>
+</table>
+<p>Apple</p>
+</body>
+</html>

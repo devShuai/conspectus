@@ -50,7 +50,8 @@ docker compose logs -f cron   # 观察任务执行
 ### 验证
 
 - `npx wrangler tail`：应见 `inbound_forwarded` 事件。日志只含事件名/状态码/字节数——出现地址、主题或正文即为事故（§9 脱敏纪律）。
-- 真实测试邮件：向某用户的 `u-…@<域名>` 别名发信，DB 出现一行 `InboundEmail`（`parseStatus=pending`）；同一封重投（平台重试）不产生新行——幂等由 `(userId, messageId)` 唯一约束兜底。
+- 真实测试邮件：向某用户的 `u-…@<域名>` 别名发信，DB 出现一行 `InboundEmail`（#60 起同请求内解析，`parseStatus` 落 `parsed`/`failed`）；同一封重投（平台重试）不产生新行——幂等由 `(userId, messageId)` 唯一约束兜底。
+- 解析成功率：按结构化日志 `inbound_email_parse_failed` 的 `reason` + `rule` 聚合——某规则 id 的 `template_drift` 突增即对应 vendor 模板改版，去 `src/server/import/rules/` 加新版本规则（只增不改）。日志只含事件/原因/规则 id，出现地址、主题或正文即为事故（§9 脱敏纪律）。
 
 ### secret 轮换（顺序不可颠倒）
 
