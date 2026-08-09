@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import Link from "next/link";
 
 import { currentAppSession } from "@/server/auth/current-session";
+import EmptyState from "@/components/empty-state";
 import { formatMoney } from "@/components/money";
 import { listSubscriptions } from "@/server/billing/subscriptions";
 import { dashboardStats } from "@/server/billing/stats";
@@ -115,40 +116,47 @@ export default async function DashboardPage() {
       )}
 
       <h2>订阅列表</h2>
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr>
-              <th>名称</th>
-              <th>状态</th>
-              <th>价格</th>
-              <th>周期</th>
-              <th>下次缴费</th>
-            </tr>
-          </thead>
-          <tbody>
-            {subs.map((sub) => (
-              <tr key={sub.id}>
-                <td>{sub.name}</td>
-                <td>
-                  <span className="tag">{sub.status}</span>
-                  {sub.status === "trial" && <span className="tag warn">试用中</span>}
-                </td>
-                <td>
-                  {sub.currency} {sub.price.toString()}
-                </td>
-                <td>{sub.billingCycle}</td>
-                <td>
-                  {sub.nextBillingAt
-                    ? sub.nextBillingAt.toISOString().slice(0, 10)
-                    : "—"}
-                </td>
+      {subs.length === 0 ? (
+        <EmptyState
+          title="还没有订阅"
+          hint="录入第一条订阅后，这里会列出价格、周期与下次续费日。"
+          action={{ href: "/subscriptions/new", label: "新建订阅" }}
+        />
+      ) : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>名称</th>
+                <th>状态</th>
+                <th>价格</th>
+                <th>周期</th>
+                <th>下次缴费</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-      {subs.length === 0 && <p className="muted">暂无订阅，等待录入。</p>}
+            </thead>
+            <tbody>
+              {subs.map((sub) => (
+                <tr key={sub.id}>
+                  <td>{sub.name}</td>
+                  <td>
+                    <span className="tag">{sub.status}</span>
+                    {sub.status === "trial" && <span className="tag warn">试用中</span>}
+                  </td>
+                  <td>
+                    {sub.currency} {sub.price.toString()}
+                  </td>
+                  <td>{sub.billingCycle}</td>
+                  <td>
+                    {sub.nextBillingAt
+                      ? sub.nextBillingAt.toISOString().slice(0, 10)
+                      : "—"}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
     </main>
   );
 }

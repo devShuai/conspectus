@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { formatDateTime } from "@/components/datetime";
+import EmptyState from "@/components/empty-state";
 import { currentAppSession } from "@/server/auth/current-session";
 import { listSubscriptions } from "@/server/billing/subscriptions";
 import { db } from "@/server/db";
@@ -83,7 +84,13 @@ export default async function UsagePage() {
       <p className="eyebrow">用量中心</p>
       <h1>用量额度</h1>
 
-      {quotas.length === 0 && <p className="muted">暂无用量卡。手动录入或连接服务商后显示。</p>}
+      {quotas.length === 0 && (
+        <EmptyState
+          title="暂无用量卡"
+          hint="手动录入一张额度卡，或连接服务商后自动同步。"
+          action={{ href: "/settings/usage", label: "去设置录入" }}
+        />
+      )}
 
       <div className="usage-grid">
         {quotas.map((quota) => {

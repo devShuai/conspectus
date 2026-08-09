@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { currentAppSession } from "@/server/auth/current-session";
 import { listSubscriptions, listVendors } from "@/server/billing/subscriptions";
+import EmptyState from "@/components/empty-state";
 import { formatMoney } from "@/components/money";
 
 export const dynamic = "force-dynamic";
@@ -64,9 +65,11 @@ export default async function SubscriptionsPage() {
       </div>
 
       {sorted.length === 0 ? (
-        <p className="muted">
-          还没有订阅。点「新建订阅」录入第一条 —— 填好周期与首次计费日后，系统会自动算出下次续费日。
-        </p>
+        <EmptyState
+          title="还没有订阅"
+          hint="填好周期与首次计费日后，系统会自动算出下次续费日。"
+          action={{ href: "/subscriptions/new", label: "新建订阅" }}
+        />
       ) : (
         <div className="table-wrap">
           <table className="data-table">

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import ActionButton from "@/components/action-button";
+import EmptyState from "@/components/empty-state";
 import { ConnectProviderForm } from "@/components/settings/provider-forms";
 import { formatDateTime } from "@/components/datetime";
 import { currentAppSession } from "@/server/auth/current-session";
@@ -51,47 +52,52 @@ export default async function ConnectionsPage() {
         凭据 AES-256-GCM 加密入库，只在同步任务内存中解密，不回传前端（design §7.4）。
       </p>
 
-      <div className="table-wrap">
-        <table className="data-table">
-          <thead>
-            <tr><th>服务商</th><th>显示名</th><th>状态</th><th>最近同步</th><th></th></tr>
-          </thead>
-          <tbody>
-            {connections.map((conn) => (
-              <tr key={conn.id}>
-                <td>{providerNames.get(conn.providerId) ?? conn.providerId}</td>
-                <td>{conn.displayName}</td>
-                <td>
-                  <span className={`tag${conn.status === "active" ? "" : " warn"}`}>
-                    {STATUS_LABEL[conn.status] ?? conn.status}
-                  </span>
-                  {conn.lastError && (
-                    <div className="field-hint">{conn.lastError.slice(0, 80)}</div>
-                  )}
-                </td>
-                <td>{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
-                <td>
-                  {conn.status !== "disabled" && (
-                    <ActionButton
-                      action={disconnectProviderAction}
-                      fields={{ connectionId: conn.id }}
-                      label="停用"
-                      pendingLabel="停用中…"
-                      confirm="停用后不再同步用量，对应 binding 将撤销并回退权威来源。继续？"
-                      variant="danger"
-                    />
-                  )}
-                </td>
-              </tr>
-            ))}
-            {connections.length === 0 && (
-              <tr><td colSpan={5} className="muted">暂无连接</td></tr>
-            )}
-          </tbody>
-        </table>
-      </div>
+      {connections.length === 0 ? (
+        <EmptyState
+          title="暂无连接"
+          hint="连接服务商后，用量与余额会自动同步，不用再手动录入。"
+          action={{ href: "/settings/connections#add", label: "添加连接" }}
+        />
+      ) : (
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>服务商</th><th>显示名</th><th>状态</th><th>最近同步</th><th></th></tr>
+            </thead>
+            <tbody>
+              {connections.map((conn) => (
+                <tr key={conn.id}>
+                  <td>{providerNames.get(conn.providerId) ?? conn.providerId}</td>
+                  <td>{conn.displayName}</td>
+                  <td>
+                    <span className={`tag${conn.status === "active" ? "" : " warn"}`}>
+                      {STATUS_LABEL[conn.status] ?? conn.status}
+                    </span>
+                    {conn.lastError && (
+                      <div className="field-hint">{conn.lastError.slice(0, 80)}</div>
+                    )}
+                  </td>
+                  <td>{conn.lastSyncAt ? formatDateTime(conn.lastSyncAt, timezone) : "—"}</td>
+                  <td>
+                    {conn.status !== "disabled" && (
+                      <ActionButton
+                        action={disconnectProviderAction}
+                        fields={{ connectionId: conn.id }}
+                        label="停用"
+                        pendingLabel="停用中…"
+                        confirm="停用后不再同步用量，对应 binding 将撤销并回退权威来源。继续？"
+                        variant="danger"
+                      />
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
-      <h2>添加连接</h2>
+      <h2 id="add">添加连接</h2>
       {subscriptions.length === 0 ? (
         <p className="muted">先创建一条订阅，连接才能归属到它。</p>
       ) : (
