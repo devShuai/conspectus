@@ -39,6 +39,16 @@ export const COLLECT_RATE_LIMITS = {
   devicesUser: { scope: "collect:devices:user", limit: 20, windowMs: 10 * 60_000 },
 } as const;
 
+/**
+ * 入站邮件端点（§9：inbound 按 IP + 用户维度限流；别名为用户维度——映射
+ * 未建立前没有 userId 可用）。IP 维度要容忍 Email Worker 的共享出口，
+ * 别名维度才是每地址的真实闸门。
+ */
+export const INBOUND_RATE_LIMITS = {
+  emailIp: { scope: "inbound:email:ip", limit: 300, windowMs: 10 * 60_000 },
+  emailAlias: { scope: "inbound:email:alias", limit: 60, windowMs: 10 * 60_000 },
+} as const;
+
 function fingerprint(scope: string, key: string): string {
   return createHash("sha256").update(scope).update("\0").update(key).digest("hex");
 }
