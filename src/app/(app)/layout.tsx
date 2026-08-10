@@ -14,8 +14,8 @@ export default async function AppLayout({
 
   return (
     <div className="app-layout">
-      {children}
       <AppNav />
+      <div className="app-content">{children}</div>
       <InstallPrompt />
     </div>
   );

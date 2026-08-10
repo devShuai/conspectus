@@ -45,7 +45,7 @@ export function TrendChart({ data, currency }: Readonly<{ data: TrendMonth[]; cu
     pending: Math.round(m.pending * 100) / 100,
   }));
   return (
-    <div style={{ width: "100%", height: 280 }}>
+    <div className="chart-surface" style={{ width: "100%", height: 320 }}>
       <ResponsiveContainer>
         <BarChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
           <CartesianGrid strokeDasharray="3 3" vertical={false} />
@@ -95,7 +95,7 @@ export function CategoryDonut({
     return <p className="muted">暂无启用中的订阅。</p>;
   }
   return (
-    <div style={{ width: "100%", height: 280 }}>
+    <div className="chart-surface" style={{ width: "100%", height: 320 }}>
       <ResponsiveContainer>
         <PieChart>
           <Pie

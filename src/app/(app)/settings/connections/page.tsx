@@ -55,10 +55,10 @@ export default async function ConnectionsPage() {
 
   return (
     <main className="shell">
-      <p className="eyebrow">设置 / 服务商连接</p>
-      <h1>服务商连接</h1>
+      <p className="eyebrow">设置 / 服务端连接</p>
+      <h1>在服务器自动同步</h1>
       <p className="muted">
-        凭据 AES-256-GCM 加密入库，只在同步任务内存中解密，不回传前端（design §7.4）。
+        MiniMax 等无需本机客户端的 Provider 在服务器同步。凭据 AES-256-GCM 加密入库，只在同步任务内存中解密，不回传前端。
       </p>
 
       {connections.length === 0 ? (

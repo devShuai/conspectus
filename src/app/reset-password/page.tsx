@@ -17,7 +17,7 @@ export default async function ResetPasswordPage({
   const { token, sent, error } = await searchParams;
 
   return (
-    <main className="shell">
+    <main className="shell auth-compact">
       <p className="eyebrow">找回密码</p>
       <h1>{token ? "设置新密码" : "申请重置链接"}</h1>
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState } from "react";
+import { useActionState, useState } from "react";
 
 import type { ActionResult } from "@/server/settings/actions";
 
@@ -101,6 +101,101 @@ export interface CollectorOption {
   id: string;
   displayName: string;
   metricPrefix: string;
+}
+
+export interface CollectorCatalogOption extends CollectorOption {
+  description: string;
+  metrics: Array<{
+    id: string;
+    label: string;
+    kind: string;
+    unit: string;
+  }>;
+}
+
+type SetupResult = ActionResult<{ created: number; authorityNeedsConfirmation: number }>;
+type SetupAction = (
+  prev: SetupResult | undefined,
+  formData: FormData,
+) => Promise<SetupResult>;
+
+/** One task-oriented form creates quota + local binding from the server catalog. */
+export function LocalCollectorSetupForm({
+  action,
+  subscriptions,
+  collectors,
+}: Readonly<{
+  action: SetupAction;
+  subscriptions: SubscriptionOption[];
+  collectors: CollectorCatalogOption[];
+}>) {
+  const [state, formAction, pending] = useActionState(action, undefined);
+  const [collectorId, setCollectorId] = useState(collectors[0]?.id ?? "");
+  const collector = collectors.find((item) => item.id === collectorId) ?? collectors[0];
+
+  return (
+    <form className="form collector-setup" action={formAction}>
+      <GlobalError state={state} />
+      <div className="field-row">
+        <div className="field">
+          <label htmlFor="local-subscription">归属订阅</label>
+          <select id="local-subscription" name="subscriptionId" required defaultValue="">
+            <option value="" disabled>请选择订阅</option>
+            {subscriptions.map((subscription) => (
+              <option key={subscription.id} value={subscription.id}>{subscription.name}</option>
+            ))}
+          </select>
+          <FieldError state={state} name="subscriptionId" />
+        </div>
+        <div className="field">
+          <label htmlFor="local-collector">本机产品</label>
+          <select
+            id="local-collector"
+            name="collectorId"
+            value={collectorId}
+            onChange={(event) => setCollectorId(event.target.value)}
+            required
+          >
+            {collectors.map((item) => (
+              <option key={item.id} value={item.id}>{item.displayName}</option>
+            ))}
+          </select>
+          <p className="field-hint">{collector?.description}</p>
+          <FieldError state={state} name="collectorId" />
+        </div>
+      </div>
+      <fieldset className="metric-picker">
+        <legend>采集指标</legend>
+        <p className="field-hint">只显示采集器真实支持的指标，可一次配置多个。</p>
+        <div className="metric-options">
+          {collector?.metrics.map((metric, index) => (
+            <label key={metric.id} className="metric-option">
+              <input
+                type="checkbox"
+                name="metrics"
+                value={metric.id}
+                defaultChecked={index < 2}
+                key={`${collector.id}:${metric.id}`}
+              />
+              <span><strong>{metric.label}</strong><small>{metric.kind} · {metric.unit}</small></span>
+            </label>
+          ))}
+        </div>
+        <FieldError state={state} name="metrics" />
+      </fieldset>
+      <div className="actions">
+        <button className="button" type="submit" disabled={pending || subscriptions.length === 0}>
+          {pending ? "正在创建…" : "创建本地采集来源"}
+        </button>
+        {state?.ok && (
+          <span className="tag ok" role="status">
+            已配置 {state.data?.created ?? 0} 张新额度
+            {(state.data?.authorityNeedsConfirmation ?? 0) > 0 ? "，已有额度需确认来源" : ""}
+          </span>
+        )}
+      </div>
+    </form>
+  );
 }
 
 /** 为一张 quota 指定本地采集器（通道 B 绑定入口，design §7.4）。 */

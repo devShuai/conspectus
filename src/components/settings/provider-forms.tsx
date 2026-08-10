@@ -70,7 +70,7 @@ export function ConnectProviderForm({
       </div>
       <div className="field-row">
         <div className="field">
-          <label htmlFor="subscriptionId">余额计入哪条订阅</label>
+          <label htmlFor="subscriptionId">归属订阅</label>
           <select id="subscriptionId" name="subscriptionId" required>
             <option value="">请选择</option>
             {subscriptions.map((s) => (
@@ -82,7 +82,7 @@ export function ConnectProviderForm({
           <FieldError state={state} name="subscriptionId" />
         </div>
         <div className="field">
-          <label htmlFor="unit">余额币种</label>
+          <label htmlFor="unit">计量币种（余额型 Provider）</label>
           <select id="unit" name="unit" defaultValue="CNY">
             {UNIT_OPTIONS.map((u) => (
               <option key={u} value={u}>

@@ -85,7 +85,8 @@ export default async function CalendarPage({
         </div>
       </div>
 
-      <div className="cal-grid" role="grid">
+      <div className="cal-month-scroll">
+        <div className="cal-grid" role="grid">
         {WEEKDAYS.map((w) => (
           <div key={w} className="cal-weekday" role="columnheader">
             {w}
@@ -127,6 +128,27 @@ export default async function CalendarPage({
             </div>
           );
         })}
+        </div>
+      </div>
+      <div className="cal-agenda" aria-label="本月续费日程">
+        {days.length === 0 ? (
+          <p className="muted">本月没有预计续费。</p>
+        ) : days.map((entry) => (
+          <section key={entry.date} className="agenda-day">
+            <div className="agenda-date">
+              <strong>{Number(entry.date.slice(-2))}</strong>
+              <span>{month} 月</span>
+            </div>
+            <ul className="cal-items">
+              {entry.dueSubscriptions.map((item) => (
+                <li key={item.id}>
+                  <span>{item.name}</span>
+                  <span className="cal-amount">{formatMoney(item.amount, item.currency)}</span>
+                </li>
+              ))}
+            </ul>
+          </section>
+        ))}
       </div>
       <p className="field-hint">合计按币种分列；「预计将付」口径见总览页（design §7.3 / §7.8）</p>
     </main>

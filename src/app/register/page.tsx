@@ -24,9 +24,10 @@ export default async function RegisterPage({
   const { error } = await searchParams;
 
   return (
-    <main className="shell">
+    <main className="shell auth-compact">
       <p className="eyebrow">注册</p>
       <h1>创建本地账号</h1>
+      <p className="summary">本地账号适合独立部署；如果站点启用了 certus，优先使用统一登录。</p>
       {error && (
         <p className="field-error">{REGISTER_ERRORS[error] ?? "注册失败，请重试。"}</p>
       )}

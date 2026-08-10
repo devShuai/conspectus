@@ -14,12 +14,12 @@ import {
 export const dynamic = "force-dynamic";
 
 const SECTIONS = [
-  { href: "/settings/connections", label: "服务商连接", note: "API Key 加密存储，自动拉取用量" },
-  { href: "/settings/usage", label: "用量录入", note: "手动创建额度、更新读数" },
-  { href: "/settings/data", label: "数据", note: "CSV 导出（需重新认证）与导入" },
-  { href: "/settings/notifications", label: "通知", note: "规则与渠道、不可投递原因" },
-  { href: "/settings/devices", label: "采集设备", note: "本地采集器的设备与撤销" },
-  { href: "/me", label: "我的", note: "账号信息与退出登录" },
+  { href: "/settings/usage", label: "用量来源", note: "配置本地 CLI、查看 Binding 与切换权威来源" },
+  { href: "/settings/connections", label: "服务端连接", note: "连接 MiniMax 等 Provider，在服务器自动同步" },
+  { href: "/settings/devices", label: "采集设备", note: "查看本地采集器设备、首次上报与撤销" },
+  { href: "/settings/notifications", label: "通知", note: "管理提醒规则、邮件与 Webhook 渠道" },
+  { href: "/settings/data", label: "数据与导入", note: "CSV、邮件导入、导出与隐私保留" },
+  { href: "/me", label: "账号与安全", note: "账号信息、退出登录与注销" },
 ];
 
 export default async function SettingsPage() {

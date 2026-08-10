@@ -18,7 +18,7 @@ export default async function AuthErrorPage({
   const { branch, title, message } = resolveAuthError(code);
   const retry = RETRY[branch];
   return (
-    <main className="shell">
+    <main className="shell auth-compact">
       <p className="eyebrow">认证失败</p>
       <h1>{title}</h1>
       <p className="summary">{message}</p>

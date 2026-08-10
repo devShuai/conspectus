@@ -9,7 +9,7 @@ type Action = (
   formData: FormData,
 ) => Promise<ActionResult>;
 
-function GlobalError({ state }: { state: ActionResult | undefined }) {
+function GlobalError({ state }: { state: ActionResult<unknown> | undefined }) {
   if (!state || state.ok) return null;
   return (
     <p className="form-error" role="alert">
@@ -18,7 +18,7 @@ function GlobalError({ state }: { state: ActionResult | undefined }) {
   );
 }
 
-function FieldError({ state, name }: { state: ActionResult | undefined; name: string }) {
+function FieldError({ state, name }: { state: ActionResult<unknown> | undefined; name: string }) {
   if (!state || state.ok) return null;
   const messages = state.error.fieldErrors?.[name];
   if (!messages?.length) return null;

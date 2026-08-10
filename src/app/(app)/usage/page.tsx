@@ -95,8 +95,8 @@ export default async function UsagePage() {
       {quotas.length === 0 && (
         <EmptyState
           title="暂无用量卡"
-          hint="手动录入一张额度卡，或连接服务商后自动同步。"
-          action={{ href: "/settings/usage", label: "去设置录入" }}
+          hint="配置本地 CLI、连接服务端 Provider，或创建一张手动额度。"
+          action={{ href: "/settings/usage", label: "配置用量来源" }}
         />
       )}
 

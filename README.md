@@ -15,9 +15,11 @@ conspectus 拉丁本义"一览、总览"。图形：四格总览网格，右上�
 
 ## 状态
 
-**M0–M6 已全部落地。** 认证（certus SSO 与本地账号）、订阅与账单、多币种汇率投影、用量三通道、通知 outbox、本地采集器与邮件导入均已实现并有测试覆盖（100 个测试文件 / 622 个用例）。尚未做生产部署。
+**M0–M6 已全部落地。** 认证（certus SSO 与本地账号）、订阅与账单、多币种汇率投影、用量三通道、通知 outbox、本地采集器与邮件导入均已实现并有测试覆盖（107 个测试文件 / 687 个用例）。尚未做生产部署。
 
 完整设计见 **[docs/design.md](docs/design.md)** —— 产品定位、数据模型、模块详设、里程碑与风险。
+
+全站前端重做与页面功能规范见 **[docs/frontend-product-design.md](docs/frontend-product-design.md)** —— 信息架构、19 个页面、响应式系统与 CLI 采集配置闭环。
 
 设计审阅意见见 **[docs/design-review.md](docs/design-review.md)**（十二轮复审台账 + 逐条实现审计）。
 
