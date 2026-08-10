@@ -61,6 +61,18 @@ describe("Kimi Code collector", () => {
     expect(readings[0].metric).toBe("kimi:weekly");
   });
 
+  it("ignores malformed limit rows instead of throwing a native TypeError", () => {
+    const readings = parseKimiUsage(
+      {
+        usage: { used: 1, limit: 20 },
+        limits: [null, "bad", { window: null }],
+      },
+      BINDINGS,
+      "2026-08-10T10:00:00Z",
+    );
+    expect(readings.map((reading) => reading.metric)).toEqual(["kimi:weekly"]);
+  });
+
   it("only emits readings for manifest bindings", () => {
     const readings = parseKimiUsage(
       {

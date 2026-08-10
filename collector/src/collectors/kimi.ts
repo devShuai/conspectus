@@ -68,7 +68,7 @@ export function parseKimiUsage(
 
   appendKimiReading(readings, bindings, "kimi:weekly", payload.usage, capturedAt, 7 * 24 * 60);
   const fiveHour = Array.isArray(payload.limits)
-    ? payload.limits.find((item) => isFiveHourWindow(item.window))?.detail
+    ? payload.limits.find((item) => isRecord(item) && isFiveHourWindow(item.window))?.detail
     : undefined;
   appendKimiReading(readings, bindings, "kimi:5h", fiveHour, capturedAt, 5 * 60);
 
