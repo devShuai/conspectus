@@ -9,6 +9,8 @@ import { registerCollector } from "./registry.js";
 import { versionAtLeast } from "./runner.js";
 
 const MIN_VERSION = "0.147.0";
+/** 账号主限额的 bucket；`codex:5h` / `codex:weekly` 这类按时长命名的 binding 指的就是它。 */
+const CANONICAL_LIMIT_ID = "codex";
 
 interface RateLimitWindow {
   usedPercent?: unknown;
@@ -264,12 +266,25 @@ export function normalizeCodexReadings(
   const output: UsageReading[] = [];
   for (const window of readings.rateLimits) {
     const exactMetric = `codex:${window.limitId}:${window.slot}`;
+    /*
+     * duration 兜底只认规范 bucket（limitId === "codex"）。
+     *
+     * app-server 会同时返回多个 limitId 而窗口长度相同：实测账号上
+     * `codex`(usedPercent=9) 与 `codex_bengalfox`(0) 都是 10080 分钟。此前两者都
+     * 命中同一条 codex:weekly binding，一批里对同一 binding 推两条读数；两条
+     * capturedAt 相同，ingest 在同刻并列时用 Snapshot UUID 决胜，而 UUID 是随机
+     * 的 —— 于是真实的 9% 被 0% 顶掉纯属偶然，且偏向「以为还没用」这一侧。
+     *
+     * 其它 limitId 要采集就显式绑 `codex:<limitId>:<slot>`，语义明确、不会撞车。
+     */
     const durationMetric =
-      window.windowDurationMins === 300
-        ? "codex:5h"
-        : window.windowDurationMins === 7 * 24 * 60
-          ? "codex:weekly"
-          : null;
+      window.limitId !== CANONICAL_LIMIT_ID
+        ? null
+        : window.windowDurationMins === 300
+          ? "codex:5h"
+          : window.windowDurationMins === 7 * 24 * 60
+            ? "codex:weekly"
+            : null;
     const binding = bindings.find(
       (candidate) =>
         candidate.kind === "quota" &&
