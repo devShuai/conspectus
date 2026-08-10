@@ -1,11 +1,8 @@
-import { execFile } from "node:child_process";
-import { promisify } from "node:util";
-
 import type { LocalCollector, UsageReading } from "../types.js";
 import { registerCollector } from "./registry.js";
 import { versionAtLeast } from "./runner.js";
+import { runCli, spawnCli } from "../exec.js";
 
-const execFileAsync = promisify(execFile);
 const MIN_VERSION = "0.147.0";
 
 export interface CodexAppServerReadings {
@@ -25,7 +22,7 @@ export const codexCollector: LocalCollector = {
 
   async detect(): Promise<boolean> {
     try {
-      const { stdout } = await execFileAsync("codex", ["--version"], { timeout: 10_000 });
+      const stdout = await runCli("codex", ["--version"]);
       return versionAtLeast(stdout.trim(), MIN_VERSION);
     } catch {
       return false;
@@ -73,12 +70,14 @@ export const codexCollector: LocalCollector = {
 };
 
 async function readAppServer(): Promise<CodexAppServerReadings> {
-  const { spawn } = await import("node:child_process");
   const port = 5000 + Math.floor(Math.random() * 1000);
-  const child = spawn("codex", ["app-server", "--host", "127.0.0.1", "--port", String(port)], {
-    stdio: "ignore",
-    detached: true,
-  });
+  // 参数全是字面量加自生成的端口号，不含外部输入 —— spawnCli 在 Windows 上走 shell
+  // （见 exec.ts），shell 模式下参数是拼接的
+  const child = spawnCli(
+    "codex",
+    ["app-server", "--host", "127.0.0.1", "--port", String(port)],
+    { stdio: "ignore" },
+  );
   try {
     await waitForServer(port);
     const rateLimits = await getJson<{ data?: Array<Record<string, unknown>> }>(

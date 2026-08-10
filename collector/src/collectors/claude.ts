@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import type { LocalCollector, UsageReading } from "../types.js";
 import { registerCollector } from "./registry.js";
 import { versionAtLeast } from "./runner.js";
+import { runCli } from "../exec.js";
 
 const MIN_VERSION = "2.0.0";
 const SETTINGS_CANDIDATES = [
@@ -30,10 +31,8 @@ export const claudeCollector: LocalCollector = {
 
   async detect(): Promise<boolean> {
     try {
-      const { execFile } = await import("node:child_process");
-      const { promisify } = await import("node:util");
-      const { stdout } = await promisify(execFile)("claude", ["--version"], { timeout: 10_000 });
-      return versionAtLeast(String(stdout).trim(), MIN_VERSION);
+      const stdout = await runCli("claude", ["--version"]);
+      return versionAtLeast(stdout.trim(), MIN_VERSION);
     } catch {
       return false;
     }
