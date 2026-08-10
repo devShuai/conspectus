@@ -1,6 +1,10 @@
 import { NextResponse } from "next/server";
 
 import { resetDueQuotaCycles } from "@/server/usage/cycle-reset";
+// Provider 适配器靠模块加载时注册。设置页会间接加载它们，但 cron route 是独立的
+// 服务端入口，不能依赖另一个路由曾经运行过；否则 registry 为空，所有连接都会被
+// syncOne() 当成未知 provider 永久 deferred（#127）。
+import "@/server/usage/providers/balance-adapters";
 import { syncDueConnections } from "@/server/usage/sync";
 
 import { cronJson } from "../json";
