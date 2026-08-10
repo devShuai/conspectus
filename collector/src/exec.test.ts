@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { needsShell, runCli } from "./exec.js";
+import { needsShell, runCli, usesShell } from "./exec.js";
 
 describe("needsShell", () => {
   /*
@@ -28,14 +28,17 @@ describe("runCli", () => {
     ).rejects.toThrow();
   });
 
-  /*
-   * shell 模式下参数是拼接的：`C:\Program Files\...` 会被 cmd 在空格处切开，
-   * 变成一条谁也看不懂的命令。宁可当场报错。
-   */
   it.skipIf(process.platform !== "win32")(
-    "refuses paths with spaces instead of letting cmd split them",
+    "launches an absolute exe directly even when its path contains spaces",
     async () => {
-      await expect(runCli(process.execPath, ["--version"])).rejects.toThrow(/空格/);
+      expect(usesShell(process.execPath)).toBe(false);
+      await expect(runCli(process.execPath, ["--version"])).resolves.toMatch(/^v\d+\./);
     },
   );
+
+  it("keeps Windows npm shims on the shell path", () => {
+    expect(usesShell("claude", "win32")).toBe(true);
+    expect(usesShell("C:\\tools\\claude.cmd", "win32")).toBe(true);
+    expect(usesShell("C:\\Program Files\\Codex\\codex.exe", "win32")).toBe(false);
+  });
 });

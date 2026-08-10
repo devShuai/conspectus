@@ -1,4 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
+import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -21,6 +22,12 @@ export function needsShell(platform: string = process.platform): boolean {
   return platform === "win32";
 }
 
+/** npm shims need cmd.exe; a concrete .exe (including Desktop paths with spaces) must not use it. */
+export function usesShell(command: string, platform: string = process.platform): boolean {
+  if (!needsShell(platform)) return false;
+  return !isAbsolute(command) || /\.(?:cmd|bat|ps1)$/i.test(command);
+}
+
 /** shell 模式下会被 cmd 切分或解释的字符。 */
 const SHELL_UNSAFE = /[\s"'`&|<>^%()!]/;
 
@@ -30,7 +37,7 @@ const SHELL_UNSAFE = /[\s"'`&|<>^%()!]/;
  * 所以只传裸命令名，交给 PATH 解析。
  */
 function assertShellSafe(command: string, args: string[]): void {
-  if (!needsShell()) return;
+  if (!usesShell(command)) return;
   for (const [label, value] of [
     ["command", command],
     ...args.map((a) => ["arg", a] as const),
@@ -53,7 +60,7 @@ export async function runCli(
   // shell 模式下把 args 拼进命令串而不是另传数组：Node 对后者会打 DEP0190
   // 弃用警告（理由正是「参数只拼接、不转义」），而拼接的安全性此处已由
   // assertShellSafe 保证。用户不该每次采集都看到一行吓人的告警。
-  const { stdout } = needsShell()
+  const { stdout } = usesShell(command)
     ? await execFileAsync([command, ...args].join(" "), {
         timeout: timeoutMs,
         shell: true,
@@ -71,7 +78,7 @@ export function spawnCli(
   assertShellSafe(command, args);
   const stdio = options.stdio ?? "pipe";
   // 同 runCli：shell 模式拼成单串，避免 DEP0190
-  return needsShell()
+  return usesShell(command)
     ? spawn([command, ...args].join(" "), { stdio, shell: true })
     : spawn(command, args, { stdio });
 }
