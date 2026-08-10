@@ -1,7 +1,7 @@
 {
   "//name": "带 scope 发布到自有 registry。scope 在 .npmrc 里绑定到 nexus.devshuai.com，npm 只会从那里解析它 —— 裸名字要靠每台机器都正确配置 registry，一旦某处回退到公共源就会去装同名的陌生包，而本 CLI 持有设备授权令牌与签名私钥。命令名仍是 conspectus-collect，不受 scope 影响。",
   "name": "@devshuai/conspectus-collect",
-  "version": "0.1.3",
+  "version": "0.2.0",
   "type": "module",
   "//publishConfig": "锁定发布目标。private 已移除（npm 拒绝发布 private 包），由 publishConfig 保证 npm publish 不会误发到公共 registry。",
   "publishConfig": {
@@ -23,7 +23,7 @@
     "!dist/**/*.test.*"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "node scripts/build.mjs",
     "//prepare": "从源码树或 git 安装时自动构建；没有它，全新 clone 装出来的包能装上但一跑就 ERR_MODULE_NOT_FOUND。",
     "prepare": "npm run build",
     "test": "vitest run"
