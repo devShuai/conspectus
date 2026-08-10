@@ -10,6 +10,7 @@ import { hostname, platform } from "node:os";
 import { resolve } from "node:path";
 
 import type { CliConfig } from "./config.js";
+import { AGENT_VERSION } from "./version.js";
 import { validAccessToken } from "./auth.js";
 import { configDir } from "./paths.js";
 import { secretStore } from "./keychain.js";
@@ -91,6 +92,7 @@ export async function ensureDevice(config: CliConfig): Promise<StoredDevice> {
     body: JSON.stringify({
       name: hostname(),
       platform: platform(),
+      agentVersion: AGENT_VERSION,
       keyAlgorithm: "Ed25519",
       publicKey: publicKey.export({ format: "der", type: "spki" }).toString("base64"),
     }),

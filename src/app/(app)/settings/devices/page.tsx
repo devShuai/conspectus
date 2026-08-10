@@ -65,19 +65,25 @@ export default async function DevicesSettingsPage() {
             </thead>
             <tbody>
               {devices.map((device) => {
+                /* 「从未上报」与「离线」是两回事，合并成同一个告警会把刚注册好的
+                   设备说成故障。design §7.4 关心的是后者：采集器悄悄挂掉、用户却
+                   以为数字是新的。刚 login 完还没配 binding 的设备属于正常中间态。 */
+                const pending = !device.revokedAt && !device.lastSeenAt;
                 const offline =
                   !device.revokedAt &&
-                  (!device.lastSeenAt ||
-                    Date.now() - device.lastSeenAt.getTime() > 3 * 86_400_000);
+                  !!device.lastSeenAt &&
+                  Date.now() - device.lastSeenAt.getTime() > 3 * 86_400_000;
                 return (
                   <tr key={device.id}>
                     <td>{device.name}</td>
                     <td>{device.platform}</td>
-                    <td>{device.agentVersion}</td>
+                    <td>{device.agentVersion ?? "—"}</td>
                     <td className="date">{device.lastSeenAt ? formatDateTime(device.lastSeenAt, timezone) : "从未上报"}</td>
                     <td>
                       {device.revokedAt ? (
                         <span className="tag warn">已撤销</span>
+                      ) : pending ? (
+                        <span className="tag">待首次上报</span>
                       ) : offline ? (
                         <span className="tag warn">离线</span>
                       ) : (

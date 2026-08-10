@@ -1,6 +1,7 @@
 import type { CliConfig } from "./config.js";
 import { validAccessToken } from "./auth.js";
 import { ensureDevice, signRequest } from "./device.js";
+import { AGENT_VERSION } from "./version.js";
 import type { UsageReading } from "./types.js";
 import { pendingBatches, removeBatch } from "./buffer.js";
 
@@ -47,7 +48,13 @@ export async function reportReadings(
 ): Promise<ReportResult> {
   const tokens = await validAccessToken(config);
   const device = await ensureDevice(config);
-  const bodyText = JSON.stringify({ deviceId: device.deviceId, readings });
+  // 每次上报都带版本：注册那一次的值会随升级过期，而设备列表用它判断采集器是否
+  // 太旧。签名覆盖整个 body，多带一个字段不影响校验。
+  const bodyText = JSON.stringify({
+    deviceId: device.deviceId,
+    agentVersion: AGENT_VERSION,
+    readings,
+  });
   const signed = signRequest(device, {
     method: "POST",
     path: REPORT_PATH,

@@ -793,7 +793,8 @@ model CollectorDevice {
   userId     String @db.Uuid
   name       String @db.Text
   platform   String @db.Text
-  agentVersion String @db.Text
+  /// 采集器自报；从未上报过版本的设备为空，不再由服务端编造缺省值
+  agentVersion String? @db.Text
   publicKey  Bytes
   keyAlgorithm String @default("Ed25519") @db.Text
   lastSeenAt DateTime? @db.Timestamptz

@@ -83,9 +83,18 @@ export async function POST(request: Request): Promise<NextResponse> {
   const result = await ingestReadings(user.id, readings.data, new Date(), {
     deviceId: gate.deviceId,
   });
+  // 版本随每次上报刷新：注册那一次的值会随升级过期，只在注册时记一次等于长期显示
+  // 一个过时的数字。采集器没报就保持原值，不覆盖成空。
+  const reportedVersion = (parsed as { agentVersion?: unknown }).agentVersion;
   await db.collectorDevice.update({
     where: { id: gate.deviceId },
-    data: { lastSeenAt: new Date(), lastReportStatus: "ok" },
+    data: {
+      lastSeenAt: new Date(),
+      lastReportStatus: "ok",
+      ...(typeof reportedVersion === "string" && reportedVersion.length > 0
+        ? { agentVersion: reportedVersion }
+        : {}),
+    },
   });
   // 一律 202 { accepted, rejected[] }（§7.4 上报流程），零接受不是错误
   return NextResponse.json(

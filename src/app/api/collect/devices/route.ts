@@ -63,7 +63,9 @@ export async function POST(request: Request): Promise<NextResponse> {
       userId: user.id,
       name: body.name ?? "未命名设备",
       platform: body.platform ?? "unknown",
-      agentVersion: body.agentVersion ?? "0.1.0",
+      // 只记采集器自报的版本。此前缺省填 "0.1.0"，那一列于是永远显示一个从未被
+      // 证实过的数字 —— 用户拿它判断「采集器是不是太旧」时会被直接误导。没报就留空。
+      agentVersion: typeof body.agentVersion === "string" ? body.agentVersion : null,
       publicKey,
       keyAlgorithm: body.keyAlgorithm ?? "Ed25519",
     },
