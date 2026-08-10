@@ -23,7 +23,11 @@ export default function EmptyState({
         <rect x="25" y="25" width="17" height="17" rx="4" fill="none" stroke="currentColor" strokeWidth="4" opacity=".4" />
       </svg>
       <p className="empty-state-title">{title}</p>
-      {hint && <p className="muted">{hint}</p>}
+      {/* div 而非 p：hint 是 ReactNode，采集设备页放的是多行命令 <pre>，
+          块级元素嵌在 <p> 里属于非法 HTML，浏览器会把 <p> 提前闭合，
+          服务端与客户端的 DOM 于是对不上，直接触发 hydration 错误。
+          .muted 只是 class，换成 div 视觉无差别。 */}
+      {hint && <div className="muted">{hint}</div>}
       {action && (
         <Link href={action.href} className="button">
           {action.label}
