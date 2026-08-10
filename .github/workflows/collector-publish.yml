@@ -6,6 +6,13 @@
 #
 # 需要一个仓库 secret：NEXUS_NPM_TOKEN（Nexus 里为发布账号生成的 npm token）。
 # registry 地址与 collector/package.json 的 publishConfig 必须一致。
+#
+# 前提：Nexus 必须启用 **npm Bearer Token Realm**（Administration → Security →
+# Realms，默认关闭）。没启用时服务端只广告 Basic，本文件下发的 _authToken 会被拒，
+# 表现为发布步骤 `npm error code E401 … need: BASIC realm="Sonatype Nexus …"`。
+# 启用后用 `npm login --scope=@devshuai --registry=<上面的 NPM_REGISTRY>` 取
+# NpmToken.* 填进 secret。若该部署无法改 realm，则要改用 HTTP Basic：把下面的
+# `_authToken=` 换成 `_auth=`，secret 存 base64(用户名:密码)。两种写法不能混用。
 name: collector-publish
 
 on:
