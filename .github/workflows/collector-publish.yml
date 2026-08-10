@@ -19,6 +19,9 @@ on:
   push:
     tags:
       - "collector-v*"
+  # 手动触发只跑到认证预检为止。排查发布权限时不必为了看一行输出就动一次 tag ——
+  # tag 是发布的凭据，反复 force-push 会让「哪个提交发出去过」不再可信。
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -46,6 +49,7 @@ jobs:
       # tag 与 package.json 必须一致，否则 tag 指向的代码和实际发布的版本会分叉，
       # 而 npm 一旦发出就无法原地更正。
       - name: Check the tag matches package.json
+        if: github.event_name == 'push'
         run: |
           tagged="${GITHUB_REF_NAME#collector-v}"
           declared="$(node -p "require('./package.json').version")"
@@ -82,8 +86,12 @@ jobs:
           # 若这里显示 base64/其他，多半是把 Basic 凭据填进了 bearer 位置。
           case "$NODE_AUTH_TOKEN" in
             NpmToken.*) echo "token 形态: NpmToken.*（Nexus npm bearer）" ;;
-            *) echo "token 形态: 非 NpmToken.* 前缀，长度 ${#NODE_AUTH_TOKEN}" ;;
+            *) echo "token 形态: 非 NpmToken.* 前缀" ;;
           esac
+          # 指纹用于和本地可用的 token 对照，判断 secret 里存的是不是同一个值。
+          # 只打印长度与 sha256 前 12 位，不可逆，也不会被日志掩码规则漏掉真值。
+          echo "token 长度: ${#NODE_AUTH_TOKEN}"
+          echo "token sha256 前 12 位: $(printf %s "$NODE_AUTH_TOKEN" | sha256sum | cut -c1-12)"
 
           registry_no_scheme="${NPM_REGISTRY#https:}"
           {
@@ -101,7 +109,9 @@ jobs:
           fi
           echo "认证通过，身份: $whoami_out"
 
+      # 只有 tag 推送才真正发布；手动触发到上一步的认证预检为止。
       - name: Publish
+        if: github.event_name == 'push'
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NEXUS_NPM_TOKEN }}
         run: npm publish
