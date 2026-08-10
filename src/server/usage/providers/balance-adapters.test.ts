@@ -88,5 +88,15 @@ describe("balance adapters", () => {
         "now",
       ),
     ).toThrow("missing MiniMax quota data");
+    expect(() => parseMiniMaxCodingPlan(null, MINIMAX_CONTEXT, "now")).toThrow(
+      "unexpected MiniMax schema",
+    );
+    expect(() =>
+      parseMiniMaxCodingPlan(
+        { base_resp: { status_code: 0 }, model_remains: { not: "an array" } },
+        MINIMAX_CONTEXT,
+        "now",
+      ),
+    ).toThrow("missing MiniMax quota data");
   });
 });

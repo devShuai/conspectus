@@ -105,11 +105,16 @@ export function parseMiniMaxCodingPlan(
   ctx: SyncContext,
   capturedAt: string,
 ): UsageReadingLike[] {
+  if (!isRecord(body)) {
+    throw new ProviderError("invalid", "unexpected MiniMax schema");
+  }
   const response = body as MiniMaxRemainsResponse;
   if (toFiniteNumber(response.base_resp?.status_code) !== 0) {
     throw new ProviderError("invalid", "unexpected MiniMax status");
   }
-  const rows = (response.model_remains ?? []).filter(hasMiniMaxQuota);
+  const rows = Array.isArray(response.model_remains)
+    ? response.model_remains.filter((row): row is MiniMaxRemain => isRecord(row) && hasMiniMaxQuota(row))
+    : [];
   const row = rows.sort(compareMiniMaxRows).at(-1);
   if (!row) {
     throw new ProviderError("invalid", "missing MiniMax quota data");
@@ -239,6 +244,10 @@ function millisecondsToIso(value: number | string | undefined): string | undefin
   if (milliseconds === null || milliseconds <= 0) return undefined;
   const date = new Date(milliseconds);
   return Number.isNaN(date.getTime()) ? undefined : date.toISOString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /** Kimi/Moonshot: balance endpoints per official contract; host must match key type. */
