@@ -11,6 +11,7 @@ export class BindingError extends Error {
 export const COLLECTOR_OPTIONS = [
   { id: "codex", displayName: "Codex", metricPrefix: "codex:" },
   { id: "claude-code", displayName: "Claude Code", metricPrefix: "claude:" },
+  { id: "kimi-code", displayName: "Kimi Code", metricPrefix: "kimi:" },
 ] as const;
 
 /**
