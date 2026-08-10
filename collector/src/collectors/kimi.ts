@@ -1,15 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { resolve } from "node:path";
 
 import { runCli } from "../exec.js";
 import type { LocalCollector, UsageReading } from "../types.js";
+import { ensureKimiAccessToken } from "./kimi-auth.js";
 import { registerCollector } from "./registry.js";
 
-interface KimiCredentialWire {
-  access_token?: unknown;
-  expires_at?: unknown;
-}
+export { ensureKimiAccessToken, readKimiAccessToken } from "./kimi-auth.js";
 
 interface KimiUsageDetail {
   used?: unknown;
@@ -40,7 +38,7 @@ export const kimiCodeCollector: LocalCollector = {
   },
 
   async collect(ctx): Promise<UsageReading[]> {
-    const token = resolveKimiAccessToken(Date.now());
+    const token = await resolveKimiAccessToken(Date.now());
     const baseUrl = (process.env.KIMI_CODE_BASE_URL ?? "https://api.kimi.com/coding/v1").replace(
       /\/+$/,
       "",
@@ -78,27 +76,10 @@ export function parseKimiUsage(
   return readings;
 }
 
-export function readKimiAccessToken(path: string, nowMs: number): string {
-  let parsed: KimiCredentialWire;
-  try {
-    parsed = JSON.parse(readFileSync(path, "utf8")) as KimiCredentialWire;
-  } catch {
-    throw new Error("auth_required: Kimi Code credentials not found");
-  }
-  const accessToken = typeof parsed.access_token === "string" ? parsed.access_token : "";
-  const expiresAt = Number(parsed.expires_at);
-  if (!accessToken) throw new Error("auth_required: Kimi Code access token missing");
-  // Kimi Code 官方格式是 Unix seconds。采集器只读，绝不代替 Kimi 刷新/轮换 token。
-  if (!Number.isFinite(expiresAt) || expiresAt * 1000 <= nowMs + 30_000) {
-    throw new Error("auth_expired: run `kimi login` or set KIMI_CODE_API_KEY");
-  }
-  return accessToken;
-}
-
-function resolveKimiAccessToken(nowMs: number): string {
+async function resolveKimiAccessToken(nowMs: number): Promise<string> {
   const dedicated = process.env.KIMI_CODE_API_KEY?.trim();
   if (dedicated) return dedicated;
-  return readKimiAccessToken(kimiCredentialPath(), nowMs);
+  return ensureKimiAccessToken(kimiCredentialPath(), nowMs);
 }
 
 function kimiCredentialPath(): string {

@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { extractClaudeAccessToken, parseClaudeUsage } from "./claude.js";
+import {
+  claudeCredentialUnavailableError,
+  extractClaudeAccessToken,
+  parseClaudeAuthStatus,
+  parseClaudeUsage,
+} from "./claude.js";
 
 const BINDINGS = [
   { bindingId: "5h", metric: "claude:five_hour", kind: "quota", unit: "%" },
@@ -62,5 +67,23 @@ describe("Claude Desktop / Code collector", () => {
     expect(extractClaudeAccessToken({ oauth: { access: token } })).toBe(token);
     expect(extractClaudeAccessToken({ accounts: [{ enabled: true, token }] })).toBe(token);
     expect(extractClaudeAccessToken({ accessToken: "sk-ant-api-key" })).toBeNull();
+  });
+
+  it("recognizes a signed-in Claude CLI without exposing its secure credential", () => {
+    const status = parseClaudeAuthStatus(
+      JSON.stringify({ loggedIn: true, authMethod: "oauth_token", apiProvider: "firstParty" }),
+    );
+    expect(status).toEqual({ loggedIn: true, authMethod: "oauth_token" });
+    expect(claudeCredentialUnavailableError(status).message).toContain(
+      "unsupported_auth_storage: Claude is signed in",
+    );
+    expect(claudeCredentialUnavailableError(status).message).not.toContain("auth login");
+  });
+
+  it("keeps the login instruction for a signed-out or unreadable CLI status", () => {
+    expect(parseClaudeAuthStatus("not-json")).toBeNull();
+    expect(claudeCredentialUnavailableError({ loggedIn: false }).message).toContain(
+      "auth_required",
+    );
   });
 });

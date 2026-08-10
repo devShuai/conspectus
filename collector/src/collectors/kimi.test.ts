@@ -1,10 +1,10 @@
-import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 
 import { afterEach, describe, expect, it } from "vitest";
 
-import { parseKimiUsage, readKimiAccessToken } from "./kimi.js";
+import { ensureKimiAccessToken, parseKimiUsage, readKimiAccessToken } from "./kimi.js";
 
 const BINDINGS = [
   { bindingId: "weekly", metric: "kimi:weekly", kind: "quota", unit: "req" },
@@ -106,12 +106,122 @@ describe("Kimi Code collector", () => {
     expect(readKimiAccessToken(path, 1_900_000_000_000)).toBe("access-only");
   });
 
-  it("rejects an expired native token instead of refreshing or modifying it", () => {
+  it("refreshes an expired native token and atomically persists the rotated bundle", async () => {
     const directory = resolve(tmpdir(), `conspectus-kimi-${Date.now()}-${Math.random()}`);
     directories.push(directory);
     mkdirSync(directory, { recursive: true });
     const path = resolve(directory, "kimi-code.json");
-    writeFileSync(path, JSON.stringify({ access_token: "expired", expires_at: 1_700_000_000 }));
-    expect(() => readKimiAccessToken(path, 1_800_000_000_000)).toThrow("auth_expired");
+    writeFileSync(
+      path,
+      JSON.stringify({
+        access_token: "expired-access",
+        refresh_token: "old-refresh",
+        expires_at: 1_700_000_000,
+        expires_in: 3600,
+        account_hint: "preserve-me",
+      }),
+    );
+    let requestBody = "";
+    const token = await ensureKimiAccessToken(path, 1_800_000_000_000, {
+      fetchImpl: async (_input, init) => {
+        requestBody = String(init?.body);
+        return new Response(
+          JSON.stringify({
+            access_token: "fresh-access",
+            refresh_token: "rotated-refresh",
+            expires_in: 3600,
+            scope: "openid",
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      },
+    });
+
+    expect(token).toBe("fresh-access");
+    const stored = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
+    expect(stored).toMatchObject({
+      access_token: "fresh-access",
+      refresh_token: "rotated-refresh",
+      expires_at: 1_800_003_600,
+      account_hint: "preserve-me",
+    });
+    expect(requestBody).toContain("grant_type=refresh_token");
+    expect(requestBody).toContain("refresh_token=old-refresh");
+  });
+
+  it("recovers when Kimi Code rotates the refresh token concurrently", async () => {
+    const directory = resolve(tmpdir(), `conspectus-kimi-${Date.now()}-${Math.random()}`);
+    directories.push(directory);
+    mkdirSync(directory, { recursive: true });
+    const path = resolve(directory, "kimi-code.json");
+    const now = Date.now();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        access_token: "expired-access",
+        refresh_token: "stale-refresh",
+        expires_at: Math.floor(now / 1000) - 1,
+        expires_in: 3600,
+      }),
+    );
+
+    const token = await ensureKimiAccessToken(path, now, {
+      sleep: async () => {},
+      fetchImpl: async () => {
+        writeFileSync(
+          path,
+          JSON.stringify({
+            access_token: "peer-access",
+            refresh_token: "peer-rotated-refresh",
+            expires_at: Math.floor(now / 1000) + 3600,
+            expires_in: 3600,
+          }),
+        );
+        return new Response(JSON.stringify({ error: "invalid_grant" }), {
+          status: 401,
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+
+    expect(token).toBe("peer-access");
+  });
+
+  it("does not refresh twice when two collector runs race", async () => {
+    const directory = resolve(tmpdir(), `conspectus-kimi-${Date.now()}-${Math.random()}`);
+    directories.push(directory);
+    mkdirSync(directory, { recursive: true });
+    const path = resolve(directory, "kimi-code.json");
+    const now = Date.now();
+    writeFileSync(
+      path,
+      JSON.stringify({
+        access_token: "expired-access",
+        refresh_token: "old-refresh",
+        expires_at: Math.floor(now / 1000) - 1,
+        expires_in: 3600,
+      }),
+    );
+    let refreshes = 0;
+    const fetchImpl: typeof fetch = async () => {
+      refreshes += 1;
+      return new Response(
+        JSON.stringify({
+          access_token: "shared-access",
+          refresh_token: "shared-refresh",
+          expires_in: 3600,
+        }),
+        { status: 200, headers: { "content-type": "application/json" } },
+      );
+    };
+
+    const tokens = await Promise.all([
+      ensureKimiAccessToken(path, now, { fetchImpl }),
+      ensureKimiAccessToken(path, now, { fetchImpl }),
+    ]);
+
+    expect(tokens).toEqual(["shared-access", "shared-access"]);
+    expect(refreshes).toBe(1);
   });
 });
