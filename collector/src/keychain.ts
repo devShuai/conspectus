@@ -156,6 +156,34 @@ class WindowsSecretStore implements SecretStore {
   }
 }
 
+/**
+ * Read a credential owned by an installed tool without copying it into the
+ * Conspectus store. Used by read-only collectors such as Claude. The value is
+ * kept in memory and callers must never include it in diagnostics.
+ */
+export async function readExternalCredential(service: string): Promise<string | null> {
+  if (process.platform === "darwin") {
+    const result = await run("security", ["find-generic-password", "-s", service, "-w"]);
+    return result.code === 0 ? result.stdout.replace(/\r?\n$/, "") : null;
+  }
+  if (process.platform === "win32") {
+    const encoded = Buffer.from(psScript("read"), "utf16le").toString("base64");
+    const result = await run(
+      "powershell.exe",
+      ["-NoProfile", "-NonInteractive", "-EncodedCommand", encoded],
+      { env: { CONSPECTUS_CRED_TARGET: service } },
+    );
+    return result.code === 0
+      ? Buffer.from(result.stdout.trim(), "base64").toString("utf8")
+      : null;
+  }
+  if (process.platform === "linux" || process.platform === "freebsd") {
+    const result = await run("secret-tool", ["lookup", "service", service]);
+    return result.code === 0 ? result.stdout.replace(/\r?\n$/, "") : null;
+  }
+  return null;
+}
+
 /** Split at code-point boundaries so each chunk stays under maxBytes of UTF-8. */
 function chunkByUtf8Bytes(secret: string, maxBytes: number): string[] {
   const chunks: string[] = [];
