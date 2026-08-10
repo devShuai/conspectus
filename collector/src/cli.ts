@@ -3,6 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 
 import { loadCliConfig, saveCliConfig } from "./config.js";
 import { deviceLogin, logout } from "./auth.js";
+import { ensureDevice } from "./device.js";
 import {
   fetchManifest,
   flushReportBuffer,
@@ -55,7 +56,12 @@ async function main(): Promise<void> {
           console.log(`  直达: ${code.verificationUriComplete}`);
         }
       });
-      console.log("✓ 已连接");
+      // design §7.4：首次完成 certus 授权后就生成签名密钥对并注册公钥。此前这步
+      // 只在首次 run 的上报路径里发生（report.ts 调 ensureDevice），于是 login
+      // 成功后「设置 / 采集设备」始终是空的 —— 用户既无法确认本机是否登记成功，
+      // 也无法撤销一台还没上报过的设备。ensureDevice 幂等，重复 login 不会重复注册。
+      const device = await ensureDevice(config);
+      console.log(`✓ 已连接，设备已注册: ${device.deviceId}`);
       return;
     }
     case "status": {
