@@ -55,12 +55,50 @@ WantedBy=timers.target
 systemctl enable --now conspectus-collect.timer
 ```
 
-## 安装 / 升级 / 卸载
+## 安装
+
+采集器发布在自有 registry，包名带 scope：`@devshuai/conspectus-collect`（命令名仍是 `conspectus-collect`）。
+
+> **不要执行 `npm install -g conspectus-collect`**（无 scope 的裸名字）。本项目从未在公共 npm 上注册该名字；哪天有人注册了，这条命令就会装到陌生人的代码并立刻运行，而本 CLI 持有 certus 设备授权令牌与 Ed25519 设备签名私钥。scope 绑定到自有 registry 后，npm 永远不会去公共源解析它。
 
 ```bash
-npm install -g conspectus-collect   # 安装 / 升级
-npm uninstall -g conspectus-collect # 卸载
-conspectus-collect logout           # 清除本机令牌（卸载前）
+# 一次性：把 @devshuai 这个 scope 绑到自有 registry
+npm config set @devshuai:registry https://nexus.devshuai.com/repository/npm-hosted/
+
+npm install -g @devshuai/conspectus-collect
+```
+
+**只映射 scope，不要改全局 registry。** `npm-hosted` 是纯 hosted 仓库，不代理公共 npm（实测 `openid-client` 在该仓库返回 404），把 `registry` 整体指过去会让采集器的依赖装不上。
+
+该仓库当前允许匿名读取，安装无需登录；若日后收紧，执行 `npm login --scope=@devshuai --registry=https://nexus.devshuai.com/repository/npm-hosted/`。
+
+首次使用需要两步，跳过 `configure` 会让 `login` 直接报 `config not found`：
+
+```bash
+conspectus-collect configure   # 交互填写服务器地址、certus issuer、CLI client id
+conspectus-collect login       # 设备码授权，完成后设备出现在「设置 / 采集设备」
+```
+
+### 从源码安装（开发、或 registry 不可达时）
+
+```bash
+git clone https://github.com/devShuai/conspectus
+cd conspectus/collector
+npm install
+npm run build          # 必须显式执行：npm 11 默认拦截 prepare 生命周期脚本
+npm install -g .
+```
+
+`npm install -g .` 装的是指向该目录的链接（Windows 上是 Junction），**别删掉这个 clone**；想要独立副本就装 tarball：`npm pack` 后 `npm install -g devshuai-conspectus-collect-<版本>.tgz`。
+
+## 升级 / 卸载
+
+```bash
+npm update -g @devshuai/conspectus-collect   # registry 安装
+# 源码安装：git pull && cd collector && npm install && npm run build（链接安装无需重装）
+
+conspectus-collect logout                    # 清除本机令牌与设备私钥（卸载前先做）
+npm uninstall -g @devshuai/conspectus-collect
 ```
 
 ## 隐私与降级

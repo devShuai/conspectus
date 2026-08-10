@@ -166,6 +166,24 @@ code {
   overflow-wrap: anywhere;
 }
 
+/* 多行命令块：自己横向滚动，不让长命令把整页撑出横向滚动条 */
+.code-block {
+  margin: 10px 0 0;
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 6%, transparent);
+  overflow-x: auto;
+  text-align: left;
+  font-size: 13px;
+  line-height: 1.7;
+}
+
+.code-block code {
+  overflow-wrap: normal;
+  white-space: pre;
+}
+
 .stats-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

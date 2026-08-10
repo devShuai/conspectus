@@ -1,0 +1,72 @@
+# 采集器发布到自有 registry（conspectus#126）。
+#
+# 触发：推送 `collector-v<版本>` tag，例如 `collector-v0.1.1`。
+# 仅发布 collector/，与服务端版本无关 —— 两者节奏不同，共用一个 tag 只会逼着
+# 没有改动的一方也升版本。
+#
+# 需要一个仓库 secret：NEXUS_NPM_TOKEN（Nexus 里为发布账号生成的 npm token）。
+# registry 地址与 collector/package.json 的 publishConfig 必须一致。
+name: collector-publish
+
+on:
+  push:
+    tags:
+      - "collector-v*"
+
+permissions:
+  contents: read
+
+env:
+  NPM_REGISTRY: https://nexus.devshuai.com/repository/npm-hosted/
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: collector
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: collector/package-lock.json
+
+      - run: npm ci
+
+      # tag 与 package.json 必须一致，否则 tag 指向的代码和实际发布的版本会分叉，
+      # 而 npm 一旦发出就无法原地更正。
+      - name: Check the tag matches package.json
+        run: |
+          tagged="${GITHUB_REF_NAME#collector-v}"
+          declared="$(node -p "require('./package.json').version")"
+          if [ "$tagged" != "$declared" ]; then
+            echo "tag collector-v$tagged 与 package.json 的 $declared 不一致" >&2
+            exit 1
+          fi
+
+      - run: npm run build
+      - run: npm test
+
+      # 发布前先看一眼包里到底有什么：bin 入口 import 的是 dist/cli.js，而 dist/
+      # 在 .gitignore 里 —— files 字段一旦被误删，发出去的就是个装得上、跑不了的包。
+      - name: Verify the tarball carries the entry point
+        run: |
+          npm pack --dry-run 2>&1 | tee /tmp/pack.txt
+          grep -q "dist/cli.js" /tmp/pack.txt || {
+            echo "包内缺少 dist/cli.js，检查 package.json 的 files 字段" >&2
+            exit 1
+          }
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NEXUS_NPM_TOKEN }}
+        run: |
+          registry_no_scheme="${NPM_REGISTRY#https:}"
+          {
+            echo "@devshuai:registry=${NPM_REGISTRY}"
+            echo "${registry_no_scheme}:_authToken=\${NODE_AUTH_TOKEN}"
+          } > .npmrc
+          npm publish

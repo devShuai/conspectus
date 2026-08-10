@@ -1,3 +1,5 @@
 node_modules/
 dist/
 *.tsbuildinfo
+# CI 发布时生成，含 registry 认证配置，绝不入库
+.npmrc

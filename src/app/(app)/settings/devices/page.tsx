@@ -38,7 +38,22 @@ export default async function DevicesSettingsPage() {
           hint={
             <>
               在本机安装采集器并登录后，设备会自动出现在这里：
-              <code>npm install -g conspectus-collect && conspectus-collect login</code>
+              {/* 原提示是 `npm install -g conspectus-collect && conspectus-collect login`。
+                  两处都错：无 scope 的裸名字本项目从未在公共 npm 注册，一旦被人抢注，
+                  这条印在界面里的命令就会让用户装到陌生人的代码并立刻运行，而本 CLI
+                  持有设备授权令牌与签名私钥；且 login 之前必须先 configure，否则直接
+                  报 config not found。scope 绑定到自有 registry 后不存在回退到公共源的
+                  可能。详见 collector/SCHEDULING.md。 */}
+              <pre className="code-block">
+                <code>
+                  {[
+                    "npm config set @devshuai:registry https://nexus.devshuai.com/repository/npm-hosted/",
+                    "npm install -g @devshuai/conspectus-collect",
+                    "conspectus-collect configure",
+                    "conspectus-collect login",
+                  ].join("\n")}
+                </code>
+              </pre>
             </>
           }
         />
