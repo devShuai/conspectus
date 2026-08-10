@@ -1,5 +1,5 @@
 import { execFile, spawn, type ChildProcess } from "node:child_process";
-import { isAbsolute } from "node:path";
+import { isAbsolute, win32 as pathWin32 } from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -25,7 +25,8 @@ export function needsShell(platform: string = process.platform): boolean {
 /** npm shims need cmd.exe; a concrete .exe (including Desktop paths with spaces) must not use it. */
 export function usesShell(command: string, platform: string = process.platform): boolean {
   if (!needsShell(platform)) return false;
-  return !isAbsolute(command) || /\.(?:cmd|bat|ps1)$/i.test(command);
+  const absolute = platform === "win32" ? pathWin32.isAbsolute(command) : isAbsolute(command);
+  return !absolute || /\.(?:cmd|bat|ps1)$/i.test(command);
 }
 
 /** shell 模式下会被 cmd 切分或解释的字符。 */
