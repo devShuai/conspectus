@@ -31,7 +31,13 @@ export async function createProviderConnection(input: {
   subscriptionId: string;
   unit: string;
   scopes?: string[];
-}): Promise<{ connectionId: string; quotaId: string; bindingId: string }> {
+}): Promise<{
+  connectionId: string;
+  quotaId: string;
+  bindingId: string;
+  quotaIds: string[];
+  bindingIds: string[];
+}> {
   const provider = getProvider(input.providerId);
   if (!provider) {
     throw new ConnectionError("unknown_provider");
@@ -48,23 +54,9 @@ export async function createProviderConnection(input: {
   // §7.4 分列存储：cipher 列只放密文，IV/authTag/keyId 各归其列（#109）
   const parts = encryptCredentialParts(Buffer.from(input.apiKey, "utf8"), keyring);
   const scopes = input.scopes ?? [];
+  const quotaSpecs = providerQuotaSpecs(input.providerId, input.unit, new Date());
 
   return db.$transaction(async (tx) => {
-    const quota = await tx.usageQuota.upsert({
-      where: { subscriptionId_metric: { subscriptionId: subscription.id, metric: "credit" } },
-      create: {
-        userId: input.userId,
-        subscriptionId: subscription.id,
-        kind: "balance",
-        metric: "credit",
-        unit: input.unit,
-        remainingValue: 0, // CHECK 要求非空；nextSyncAt=now，首次同步即覆盖
-        resetCycle: "never",
-      },
-      update: {},
-      select: { id: true, authoritativeBindingId: true },
-    });
-
     const connection = await tx.providerConnection.create({
       data: {
         userId: input.userId,
@@ -81,31 +73,110 @@ export async function createProviderConnection(input: {
       select: { id: true },
     });
 
-    const binding = await tx.usageBinding.upsert({
-      where: {
-        quotaId_source_sourceKey: { quotaId: quota.id, source: "provider", sourceKey: "credit" },
-      },
-      create: {
-        userId: input.userId,
-        quotaId: quota.id,
-        source: "provider",
-        sourceKey: "credit",
-        connectionId: connection.id,
-      },
-      // 重新连接同一平台：binding 指向新连接并复活，不另建行
-      update: { connectionId: connection.id, status: "active" },
-      select: { id: true },
-    });
-
-    if (!quota.authoritativeBindingId) {
-      await tx.usageQuota.update({
-        where: { id: quota.id },
-        data: { authoritativeBindingId: binding.id },
+    const quotaIds: string[] = [];
+    const bindingIds: string[] = [];
+    for (const spec of quotaSpecs) {
+      const quota = await tx.usageQuota.upsert({
+        where: {
+          subscriptionId_metric: { subscriptionId: subscription.id, metric: spec.metric },
+        },
+        create: {
+          userId: input.userId,
+          subscriptionId: subscription.id,
+          kind: spec.kind,
+          metric: spec.metric,
+          unit: spec.unit,
+          resetCycle: spec.resetCycle,
+          ...(spec.kind === "balance"
+            ? { remainingValue: 0 }
+            : {
+                usedValue: 0,
+                limitValue: 1,
+                periodStart: spec.periodStart,
+                periodEnd: spec.periodEnd,
+              }),
+        },
+        update: {},
+        select: { id: true, authoritativeBindingId: true },
       });
+
+      const binding = await tx.usageBinding.upsert({
+        where: {
+          quotaId_source_sourceKey: {
+            quotaId: quota.id,
+            source: "provider",
+            sourceKey: spec.metric,
+          },
+        },
+        create: {
+          userId: input.userId,
+          quotaId: quota.id,
+          source: "provider",
+          sourceKey: spec.metric,
+          connectionId: connection.id,
+        },
+        // 重新连接同一平台：binding 指向新连接并复活，不另建行
+        update: { connectionId: connection.id, status: "active" },
+        select: { id: true },
+      });
+
+      if (!quota.authoritativeBindingId) {
+        await tx.usageQuota.update({
+          where: { id: quota.id },
+          data: { authoritativeBindingId: binding.id },
+        });
+      }
+      quotaIds.push(quota.id);
+      bindingIds.push(binding.id);
     }
 
-    return { connectionId: connection.id, quotaId: quota.id, bindingId: binding.id };
+    return {
+      connectionId: connection.id,
+      quotaId: quotaIds[0],
+      bindingId: bindingIds[0],
+      quotaIds,
+      bindingIds,
+    };
   });
+}
+
+interface ProviderQuotaSpec {
+  kind: "quota" | "balance";
+  metric: string;
+  unit: string;
+  resetCycle: "weekly" | "never";
+  periodStart?: Date;
+  periodEnd?: Date;
+}
+
+/** Initial values only satisfy the quota CHECK; the first due sync replaces them. */
+export function providerQuotaSpecs(
+  providerId: string,
+  balanceUnit: string,
+  now: Date,
+): ProviderQuotaSpec[] {
+  if (providerId !== "minimax-coding-plan") {
+    return [{ kind: "balance", metric: "credit", unit: balanceUnit, resetCycle: "never" }];
+  }
+  return [
+    {
+      kind: "quota",
+      metric: "minimax:5h",
+      unit: "req",
+      // rolling 5h has no exact UsageResetCycle enum; provider periods are authoritative.
+      resetCycle: "never",
+      periodStart: now,
+      periodEnd: new Date(now.getTime() + 5 * 3600_000),
+    },
+    {
+      kind: "quota",
+      metric: "minimax:weekly",
+      unit: "req",
+      resetCycle: "weekly",
+      periodStart: now,
+      periodEnd: new Date(now.getTime() + 7 * 24 * 3600_000),
+    },
+  ];
 }
 
 export async function listProviderConnections(userId: string) {

@@ -98,6 +98,42 @@ describe.skipIf(DISABLED)("provider connections", () => {
     await cleanup(user.id);
   });
 
+  it("creates both MiniMax Coding Plan quotas and provider bindings atomically", async () => {
+    const user = await makeUser(unique("conn-minimax"));
+    const sub = await makeSubscription(user.id, "MiniMax Coding Plan");
+    const result = await createProviderConnection({
+      userId: user.id,
+      providerId: "minimax-coding-plan",
+      displayName: "MiniMax Coding Plan",
+      apiKey: "sk-cp-test-12345678",
+      subscriptionId: sub.id,
+      unit: "CNY",
+    });
+
+    expect(result.quotaIds).toHaveLength(2);
+    expect(result.bindingIds).toHaveLength(2);
+    const quotas = await db.usageQuota.findMany({
+      where: { id: { in: result.quotaIds } },
+      orderBy: { metric: "asc" },
+    });
+    expect(quotas.map((quota) => quota.metric)).toEqual(["minimax:5h", "minimax:weekly"]);
+    expect(quotas.every((quota) => quota.kind === "quota" && quota.unit === "req")).toBe(true);
+    const bindings = await db.usageBinding.findMany({
+      where: { id: { in: result.bindingIds } },
+      orderBy: { sourceKey: "asc" },
+    });
+    expect(bindings.map((binding) => binding.sourceKey)).toEqual([
+      "minimax:5h",
+      "minimax:weekly",
+    ]);
+    expect(bindings.every((binding) => binding.connectionId === result.connectionId)).toBe(true);
+    expect(quotas.map((quota) => quota.authoritativeBindingId).sort()).toEqual(
+      [...result.bindingIds].sort(),
+    );
+
+    await cleanup(user.id);
+  });
+
   it("reconnect finds the existing quota and points the binding at the new connection", async () => {
     const user = await makeUser(unique("conn-2b"));
     const sub = await makeSubscription(user.id, "DeepSeek");

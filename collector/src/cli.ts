@@ -22,7 +22,6 @@ import type { DeviceLoginResult } from "./types.js";
 // the registry stays empty and `run` would never collect anything.
 import "./collectors/claude.js";
 import "./collectors/codex.js";
-import "./collectors/minimax.js";
 
 async function ask(label: string): Promise<string> {
   const rl = createInterface({ input, output });
