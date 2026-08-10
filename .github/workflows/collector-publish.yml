@@ -67,13 +67,41 @@ jobs:
             exit 1
           }
 
-      - name: Publish
+      # 认证预检。npm publish 的 E401 只说「need: BASIC」，既不区分 token 缺失、
+      # token 无效、还是 registry 与 .npmrc 的键对不上；而 npm publish --dry-run
+      # 全程不联网，本地怎么验都验不到这一层。这里把三种情况分开报。
+      - name: Verify registry auth
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NEXUS_NPM_TOKEN }}
         run: |
+          if [ -z "$NODE_AUTH_TOKEN" ]; then
+            echo "secret NEXUS_NPM_TOKEN 为空或未配置" >&2
+            exit 1
+          fi
+          # 只报形态，不打印值：Nexus 的 npm bearer token 形如 NpmToken.<uuid>；
+          # 若这里显示 base64/其他，多半是把 Basic 凭据填进了 bearer 位置。
+          case "$NODE_AUTH_TOKEN" in
+            NpmToken.*) echo "token 形态: NpmToken.*（Nexus npm bearer）" ;;
+            *) echo "token 形态: 非 NpmToken.* 前缀，长度 ${#NODE_AUTH_TOKEN}" ;;
+          esac
+
           registry_no_scheme="${NPM_REGISTRY#https:}"
           {
             echo "@devshuai:registry=${NPM_REGISTRY}"
             echo "${registry_no_scheme}:_authToken=\${NODE_AUTH_TOKEN}"
           } > .npmrc
-          npm publish
+          echo "写入的 .npmrc 认证键: ${registry_no_scheme}:_authToken"
+
+          if ! whoami_out="$(npm whoami --registry="$NPM_REGISTRY" 2>&1)"; then
+            echo "认证失败，registry 拒绝了这个 token：" >&2
+            echo "$whoami_out" >&2
+            echo "--- 依次排查：Nexus 是否启用 npm Bearer Token Realm；token 是否由" >&2
+            echo "    npm login 对该 registry 生成；该账号是否有 npm-hosted 的写权限 ---" >&2
+            exit 1
+          fi
+          echo "认证通过，身份: $whoami_out"
+
+      - name: Publish
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NEXUS_NPM_TOKEN }}
+        run: npm publish
