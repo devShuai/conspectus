@@ -31,7 +31,9 @@
   "dependencies": {
     "openid-client": "^6.8.4"
   },
+  "//devDependencies": "@types/node 必须由本包自己声明。源码通篇用 node:fs / node:path / process / Buffer，此前只是碰巧解析到了仓库根的 node_modules —— 在只安装 collector 依赖的环境（CI、或单独 clone 这个目录）里 tsc 会直接崩掉。版本与根保持一致，避免同一仓库出现两份 @types/node。",
   "devDependencies": {
+    "@types/node": "^20.19.43",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
   }
