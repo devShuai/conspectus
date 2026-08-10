@@ -107,6 +107,16 @@ jobs:
             echo "    npm login 对该 registry 生成；该账号是否有 npm-hosted 的写权限 ---" >&2
             exit 1
           fi
+          # 该仓库开放匿名读，所以 whoami 成功并不代表认证生效 —— token 无效时它会
+          # 以 anonymous 身份正常返回。不把这一种判为失败，预检就是假绿的。
+          if [ -z "$whoami_out" ] || [ "$whoami_out" = "anonymous" ]; then
+            echo "registry 以匿名身份接受了请求，token 并未生效（whoami=${whoami_out:-空}）" >&2
+            echo "--- 多半是 secret 里存的不是 npm bearer token：Nexus 界面的 User Token" >&2
+            echo "    是 Basic 凭据，放在 _authToken 位置会被当作无效 bearer 丢弃。" >&2
+            echo "    正确取法：npm login --scope=@devshuai --registry=$NPM_REGISTRY" >&2
+            echo "    取到的值形如 NpmToken.<uuid> ---" >&2
+            exit 1
+          fi
           echo "认证通过，身份: $whoami_out"
 
       # 只有 tag 推送才真正发布；手动触发到上一步的认证预检为止。
