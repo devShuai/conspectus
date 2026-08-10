@@ -21,7 +21,14 @@ import {
   createProviderConnection,
   revokeProviderConnection,
 } from "@/server/usage/connections";
-import { BindingError, COLLECTOR_OPTIONS, createLocalBinding } from "@/server/usage/bindings";
+import {
+  BindingError,
+  COLLECTOR_OPTIONS,
+  createLocalBinding,
+  createLocalCollectorSetup,
+  deleteUsageMetric,
+} from "@/server/usage/bindings";
+import { AuthorityError, switchAuthoritativeBinding } from "@/server/usage/authority";
 import { listBalanceAdapters } from "@/server/usage/providers/balance-adapters";
 import {
   ManualUsageError,
@@ -79,8 +86,27 @@ const KNOWN_ERRORS: Array<{
         ? "未知的采集器"
         : r === "metric_prefix_mismatch"
           ? "指标需以该采集器的前缀开头（如 codex:tokens）"
+          : r === "unsupported_metric"
+            ? "该采集器不支持这个指标"
+            : r === "metrics_required"
+              ? "至少选择一个采集指标"
+              : r === "metric_conflict"
+                ? "已有同名额度的模型或单位与采集器不兼容"
+                : r === "subscription_not_found"
+                  ? "订阅不存在"
           : r === "quota_not_found"
             ? "额度不存在"
+            : r,
+  },
+  {
+    match: (c) => (c instanceof AuthorityError ? c.reason : null),
+    message: (r) =>
+      r === "quota_not_found"
+        ? "额度不存在"
+        : r === "binding_not_found"
+          ? "来源不存在"
+          : r === "binding_revoked"
+            ? "已撤销的来源不能设为权威"
             : r,
   },
   {
@@ -320,6 +346,9 @@ const ManualQuotaSchema = z
     if (value.kind === "quota" && value.limitValue === undefined) {
       ctx.addIssue({ code: "custom", path: ["limitValue"], message: "quota 需要上限" });
     }
+    if ((value.kind === "quota" || value.kind === "counter") && value.usedValue === undefined) {
+      ctx.addIssue({ code: "custom", path: ["usedValue"], message: "请填写当前已用值（可填 0）" });
+    }
     if (value.kind === "balance" && value.remainingValue === undefined) {
       ctx.addIssue({ code: "custom", path: ["remainingValue"], message: "balance 需要剩余值" });
     }
@@ -439,6 +468,93 @@ export async function createLocalBindingAction(
     await createLocalBinding({ userId, ...parsed.data });
     revalidatePath("/settings/usage");
     revalidatePath("/usage");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+const LocalCollectorSetupSchema = z.object({
+  subscriptionId: z.string().trim().min(1, "请选择订阅"),
+  collectorId: z
+    .string()
+    .trim()
+    .refine((id) => COLLECTOR_OPTIONS.some((collector) => collector.id === id), "未知的采集器"),
+  metrics: z.array(z.string().trim()).min(1, "至少选择一个指标").max(4),
+});
+
+export async function createLocalCollectorSetupAction(
+  prev: ActionResult<{ created: number; authorityNeedsConfirmation: number }> | undefined,
+  formData: FormData,
+): Promise<ActionResult<{ created: number; authorityNeedsConfirmation: number }>> {
+  try {
+    const userId = await requireUser();
+    const parsed = LocalCollectorSetupSchema.safeParse({
+      subscriptionId: formData.get("subscriptionId") ?? "",
+      collectorId: formData.get("collectorId") ?? "",
+      metrics: formData.getAll("metrics"),
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "请检查输入", fieldErrors: toFieldErrors(parsed.error) } };
+    }
+    const result = await createLocalCollectorSetup({ userId, ...parsed.data });
+    revalidatePath("/settings/usage");
+    revalidatePath("/usage");
+    return { ok: true, data: result };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+const SwitchAuthoritySchema = z.object({
+  quotaId: z.string().uuid(),
+  bindingId: z.string().uuid(),
+});
+
+export async function switchUsageAuthorityAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  try {
+    const userId = await requireUser();
+    const parsed = SwitchAuthoritySchema.safeParse({
+      quotaId: formData.get("quotaId") ?? "",
+      bindingId: formData.get("bindingId") ?? "",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "来源参数无效" } };
+    }
+    await switchAuthoritativeBinding({ userId, quotaId: parsed.data.quotaId, newBindingId: parsed.data.bindingId });
+    revalidatePath("/settings/usage");
+    revalidatePath("/usage");
+    return { ok: true };
+  } catch (cause) {
+    return toActionError(cause);
+  }
+}
+
+const DeleteUsageMetricSchema = z.object({
+  quotaId: z.string().uuid(),
+});
+
+export async function deleteUsageMetricAction(
+  prev: ActionResult | undefined,
+  formData: FormData,
+): Promise<ActionResult> {
+  void prev;
+  try {
+    const userId = await requireUser();
+    const parsed = DeleteUsageMetricSchema.safeParse({
+      quotaId: formData.get("quotaId") ?? "",
+    });
+    if (!parsed.success) {
+      return { ok: false, error: { code: "validation", message: "指标参数无效" } };
+    }
+    await deleteUsageMetric({ userId, quotaId: parsed.data.quotaId });
+    revalidatePath("/settings/usage");
+    revalidatePath("/usage");
+    revalidatePath("/analytics");
+    revalidatePath("/");
     return { ok: true };
   } catch (cause) {
     return toActionError(cause);
