@@ -6,10 +6,11 @@ import "./route";
 import { listProviders } from "@/server/usage/sync";
 
 describe("usage-sync provider bootstrap (#127)", () => {
-  it("registers every balance provider from the cron module graph", () => {
+  it("registers every server-side provider from the cron module graph", () => {
     expect(listProviders().map((provider) => provider.id).sort()).toEqual([
       "deepseek",
       "kimi",
+      "minimax-coding-plan",
       "xai",
     ]);
   });
