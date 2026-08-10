@@ -15,6 +15,7 @@ import { enqueueFailedBatch, bufferStats } from "./buffer.js";
 import { runDiagnose } from "./diagnose.js";
 import { listCollectors } from "./collectors/registry.js";
 import { runAllCollectors } from "./collectors/runner.js";
+import { collectionDiagnostics } from "./collection-diagnostics.js";
 import type { DeviceLoginResult } from "./types.js";
 
 // Side-effect imports: each collector registers itself on load. Without these
@@ -95,13 +96,16 @@ async function main(): Promise<void> {
       }));
       // 单个 collector 失败不中断其余（§7.4 采集器独立性），状态落盘供 diagnose
       const { readings, statuses } = await runAllCollectors(bindings);
-      const collectorErrors = statuses
-        .filter((s) => !s.ok && s.error && s.error !== "not_installed")
-        .map((s) => ({ collectorId: s.id, error: s.error ?? "unknown" }));
+      const diagnostics = collectionDiagnostics(
+        bindings,
+        statuses,
+        readings.length,
+        listCollectors().map((collector) => collector.id),
+      );
       if (dryRun) {
         console.log(
           JSON.stringify(
-            { dryRun: true, readings, collectorErrors, buffered: bufferStats() },
+            { dryRun: true, readings, ...diagnostics, buffered: bufferStats() },
             null,
             2,
           ),
@@ -134,7 +138,7 @@ async function main(): Promise<void> {
       console.log(
         JSON.stringify({
           ...result,
-          collectorErrors,
+          ...diagnostics,
           replayed: { flushed: flush.flushed, dropped: flush.dropped },
           bufferedNow,
           bufferDepth: bufferStats().readings,
