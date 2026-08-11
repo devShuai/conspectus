@@ -51,6 +51,51 @@ describe("Kimi Code collector", () => {
     ]);
   });
 
+  /*
+   * 真实响应里 5 小时窗口的 detail 只有 limit + remaining，没有 used。此前只认
+   * used，缺了就整条静默跳过 —— kimi:5h 从未落过库，页面上一直是建 quota 时的
+   * 初始值，既不更新也不报错。
+   */
+  it("derives used from remaining when the window omits used", () => {
+    const readings = parseKimiUsage(
+      {
+        usage: { used: "70", remaining: "30", limit: "100", resetTime: "2026-08-12T07:59:10Z" },
+        limits: [
+          {
+            window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
+            detail: { limit: "100", remaining: "80", resetTime: "2026-08-11T02:59:10Z" },
+          },
+        ],
+      },
+      BINDINGS,
+      "2026-08-10T10:00:00Z",
+    );
+    expect(readings).toHaveLength(2);
+    expect(readings[1]).toMatchObject({
+      bindingId: "5h",
+      usedValue: "20",
+      limitValue: "100",
+    });
+  });
+
+  it("skips a window that gives neither used nor remaining", () => {
+    const readings = parseKimiUsage(
+      {
+        usage: { used: "70", limit: "100" },
+        limits: [
+          {
+            window: { duration: 300, timeUnit: "TIME_UNIT_MINUTE" },
+            detail: { limit: "100" },
+          },
+        ],
+      },
+      BINDINGS,
+      "2026-08-10T10:00:00Z",
+    );
+    // 宁可不报，也不能猜一个数字填进配额
+    expect(readings.map((r) => r.metric)).toEqual(["kimi:weekly"]);
+  });
+
   it("degrades independently when only the weekly window is present", () => {
     const readings = parseKimiUsage(
       { usage: { used: 1, limit: 20, resetTime: "2026-08-17T00:00:00Z" } },

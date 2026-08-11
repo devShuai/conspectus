@@ -11,6 +11,8 @@ export { ensureKimiAccessToken, readKimiAccessToken } from "./kimi-auth.js";
 
 interface KimiUsageDetail {
   used?: unknown;
+  /** 5 小时窗口只给 remaining，不给 used；见 resolveUsed。 */
+  remaining?: unknown;
   limit?: unknown;
   resetTime?: unknown;
 }
@@ -98,8 +100,8 @@ function appendKimiReading(
   durationMinutes: number,
 ): void {
   const binding = bindings.find((candidate) => candidate.metric === metric && candidate.kind === "quota");
-  const used = toDecimal(detail?.used);
   const limit = toDecimal(detail?.limit);
+  const used = resolveUsed(detail, limit);
   if (!binding || used === null || limit === null || Number(limit) <= 0) return;
   const periodEnd = typeof detail?.resetTime === "string" ? detail.resetTime : undefined;
   const endMs = periodEnd ? Date.parse(periodEnd) : Number.NaN;
@@ -116,6 +118,23 @@ function appendKimiReading(
     periodEnd,
     capturedAt,
   });
+}
+
+/**
+ * 取「已用」。周用量给的是 used + remaining + limit（三者自洽，used = limit -
+ * remaining），而 5 小时窗口的 detail 只给 remaining 和 limit，没有 used。
+ *
+ * 此前只认 used，缺了就整条静默跳过 —— kimi:5h 因此从未落过库，页面上一直是建
+ * quota 时填的初始值，既不更新也不报错。缺 used 时按该 API 自己的算术补出来。
+ */
+function resolveUsed(detail: KimiUsageDetail | undefined, limit: string | null): string | null {
+  const used = toDecimal(detail?.used);
+  if (used !== null) return used;
+  const remaining = toDecimal(detail?.remaining);
+  if (remaining === null || limit === null) return null;
+  const derived = Number(limit) - Number(remaining);
+  if (!Number.isFinite(derived) || derived < 0) return null;
+  return String(derived);
 }
 
 function isFiveHourWindow(window: { duration?: unknown; timeUnit?: unknown } | undefined): boolean {
