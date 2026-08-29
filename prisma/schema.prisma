@@ -121,6 +121,7 @@ model User {
   notificationArmStates NotificationArmState[]
   priceChanges PriceChange[]
   collectorDevices CollectorDevice[]
+  usageLedgerDays UsageLedgerDay[]
   inboundEmails InboundEmail[]
   importDrafts ImportDraft[]
 
@@ -889,4 +890,41 @@ model ImportDraft {
   @@index([userId, status])
   @@index([expiresAt])
   @@map("import_drafts")
+}
+
+/// 消耗流水账的按日聚合（#143）。与 UsageQuota 的配额仪表盘**并存且独立**：
+/// 前者回答「这段时间消耗在哪」，后者回答「还剩多少」。两者不可合并 —— 配额值是
+/// §7.6 通知机制的输入，而本地 token 求和还原不出服务端加权算出的配额百分比。
+///
+/// 只存按日聚合而非逐次调用：本机单用户仅 claude 30 天就有 3502 条明细，聚合后是
+/// 数十行；逐次明细留在本机由采集器保管。projectKey 是脱敏后的项目标识，不是本机路径。
+model UsageLedgerDay {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  /// 本地日期（按用户时区切分），与 BillingConversion 的 occurrenceKey 同样用 date
+  /// 类型：时区无关，避免跨时区重算时漂移
+  day        DateTime @db.Date
+  /// 采集器口径的来源标识，如 claude / codex / kimi
+  provider   String @db.Text
+  /// 脱敏后的项目标识；无项目维度的来源用空串
+  projectKey String @db.Text
+  model      String @db.Text
+  inputTokens      BigInt @default(0)
+  outputTokens     BigInt @default(0)
+  cacheReadTokens  BigInt @default(0)
+  cacheWriteTokens BigInt @default(0)
+  apiCalls   Int @default(0)
+  sessions   Int @default(0)
+  /// 直接采信采集器上报的成本（#143 决定），服务端不另维护价格表
+  costUsd    Decimal @default(0) @db.Decimal(14, 6)
+  capturedAt DateTime @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, day, provider, projectKey, model])
+  @@index([userId, day])
+  @@index([userId, provider, day])
+  @@map("usage_ledger_days")
 }

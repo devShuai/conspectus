@@ -8,9 +8,11 @@ import {
   fetchManifest,
   flushReportBuffer,
   isRetryableReportError,
+  reportLedger,
   reportReadings,
   type ReportResult,
 } from "./report.js";
+import { runCodeburnLedger } from "./collectors/codeburn-export.js";
 import { enqueueFailedBatch, bufferStats } from "./buffer.js";
 import { runDiagnose } from "./diagnose.js";
 import { listCollectors } from "./collectors/registry.js";
@@ -113,6 +115,16 @@ async function main(): Promise<void> {
         return;
       }
 
+      // 消耗流水账（#143）：与读数各走各的端点，一侧失败不影响另一侧
+      // 此处已过 dry-run 的提前返回，无需再判
+      let ledger: { accepted: number } | { error: string };
+      try {
+        const rows = await runCodeburnLedger("claude");
+        ledger = rows ? await reportLedger(config, rows) : { error: "导出为空或 schema 不符" };
+      } catch (cause) {
+        ledger = { error: (cause instanceof Error ? cause.message : String(cause)).slice(0, 160) };
+      }
+
       // 先重放上次失败的批次（最旧的在前），再上报本轮读数
       const flush = await flushReportBuffer(config);
       let result: ReportResult = { accepted: 0, rejected: [] };
@@ -139,6 +151,7 @@ async function main(): Promise<void> {
         JSON.stringify({
           ...result,
           ...diagnostics,
+          ledger,
           replayed: { flushed: flush.flushed, dropped: flush.dropped },
           bufferedNow,
           bufferDepth: bufferStats().readings,

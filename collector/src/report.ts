@@ -2,6 +2,7 @@ import type { CliConfig } from "./config.js";
 import { validAccessToken } from "./auth.js";
 import { ensureDevice, signRequest } from "./device.js";
 import { AGENT_VERSION } from "./version.js";
+import type { LedgerDayRow } from "./collectors/codeburn-export.js";
 import type { UsageReading } from "./types.js";
 import { pendingBatches, removeBatch } from "./buffer.js";
 
@@ -11,6 +12,7 @@ export interface ReportResult {
 }
 
 const REPORT_PATH = "/api/collect/usage";
+const LEDGER_PATH = "/api/collect/ledger";
 
 /**
  * Report failure. `retryable` marks transient conditions (network, 5xx, 429)
@@ -160,4 +162,38 @@ export async function fetchManifest(config: CliConfig): Promise<ManifestBinding[
   if (!response.ok) throw new Error(`manifest failed: ${response.status}`);
   const body = (await response.json()) as { bindings: ManifestBinding[] };
   return body.bindings;
+}
+
+
+/**
+ * 上报消耗流水账（#143）。与读数走**独立端点**：两者是不同的计量，共用契约会把
+ * §4 要求分开建模的模型搅在一起。签名覆盖 path，所以两个端点的签名不可互换重放。
+ *
+ * 失败不进本地缓冲区：流水账每轮上报的是「该日至今的累计值」，下一轮自然带上这轮
+ * 的量，补发没有意义 —— 而读数是时点值，漏了就永远缺一格，所以那边才需要缓冲。
+ */
+export async function reportLedger(
+  config: CliConfig,
+  days: LedgerDayRow[],
+): Promise<{ accepted: number; rejected: Array<{ index: number; reason: string }> }> {
+  if (days.length === 0) return { accepted: 0, rejected: [] };
+  const tokens = await validAccessToken(config);
+  const device = await ensureDevice(config);
+  const bodyText = JSON.stringify({ deviceId: device.deviceId, agentVersion: AGENT_VERSION, days });
+  const signed = signRequest(device, { method: "POST", path: LEDGER_PATH, bodyText });
+
+  const response = await fetch(`${config.serverUrl}${LEDGER_PATH}`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${tokens.accessToken}`,
+      "content-type": "application/json",
+      ...signed,
+    },
+    body: bodyText,
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new ReportError(`ledger ${response.status} ${text.slice(0, 120)}`, response.status >= 500);
+  }
+  return (await response.json()) as { accepted: number; rejected: Array<{ index: number; reason: string }> };
 }

@@ -1,8 +1,10 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { formatDateTime } from "@/components/datetime";
 import EmptyState from "@/components/empty-state";
 import { currentAppSession } from "@/server/auth/current-session";
+import { spendHref } from "@/server/usage/provider-map";
 import { listSubscriptions } from "@/server/billing/subscriptions";
 import { db } from "@/server/db";
 import {
@@ -137,6 +139,19 @@ export default async function UsagePage() {
               <div className="usage-meta">
                 来源：{auth?.source ?? "—"} · 订阅：{subName.get(quota.subscriptionId) ?? "—"}
               </div>
+              {/* 穿透（#143）：跳到同一来源、同一周期窗口的消耗明细。
+                  映射缺失时不显示入口，而不是跳进一个空筛选。 */}
+              {(() => {
+                const href = spendHref(auth?.collectorId ?? null, {
+                  start: quota.periodStart,
+                  end: quota.periodEnd,
+                });
+                return href ? (
+                  <div className="usage-meta">
+                    <Link href={href}>查看本周期消耗明细 →</Link>
+                  </div>
+                ) : null;
+              })()}
               {projections.get(quota.id) && (
                 <div className="usage-meta">{projections.get(quota.id)}</div>
               )}

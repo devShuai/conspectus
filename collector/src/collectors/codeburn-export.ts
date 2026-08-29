@@ -119,10 +119,10 @@ export function resolveCodeburnEntry(): string | null {
  * 跑一次导出并读回结果。写到临时目录再读 —— codeburn 只支持输出到文件，不支持
  * stdout；临时文件用完即删，不在用户目录留痕。
  */
-export async function runCodeburnExport(
+async function exportRaw(
   provider: string,
-  options: { entry?: string; timeoutMs?: number } = {},
-): Promise<CodeburnTotals | null> {
+  options: { entry?: string; timeoutMs?: number },
+): Promise<string> {
   const entry = options.entry ?? resolveCodeburnEntry();
   if (!entry) throw new Error("codeburn 依赖未安装");
   const dir = mkdtempSync(resolve(tmpdir(), "conspectus-codeburn-"));
@@ -133,10 +133,29 @@ export async function runCodeburnExport(
       [entry, "export", "--format", "json", "--provider", provider, "--output", output],
       options.timeoutMs ?? 300_000,
     );
-    return parseCodeburnExport(readFileSync(output, "utf8"));
+    return readFileSync(output, "utf8");
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+}
+
+/**
+ * 跑一次导出取合计。写到临时目录再读 —— codeburn 只支持输出到文件，不支持 stdout；
+ * 临时文件用完即删，不在用户目录留痕。
+ */
+export async function runCodeburnExport(
+  provider: string,
+  options: { entry?: string; timeoutMs?: number } = {},
+): Promise<CodeburnTotals | null> {
+  return parseCodeburnExport(await exportRaw(provider, options));
+}
+
+/** 同一次导出的按日聚合，供流水账上报（#143）。 */
+export async function runCodeburnLedger(
+  provider: string,
+  options: { entry?: string; timeoutMs?: number } = {},
+): Promise<LedgerDayRow[] | null> {
+  return aggregateCodeburnRecords(await exportRaw(provider, options));
 }
 
 function count(value: unknown): number {
@@ -146,4 +165,97 @@ function count(value: unknown): number {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+/** 上报给服务端的按日聚合行（与服务端 LedgerDaySchema 对齐）。 */
+export interface LedgerDayRow {
+  day: string;
+  provider: string;
+  projectKey: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  apiCalls: number;
+  sessions: number;
+  costUsd: number;
+}
+
+/**
+ * 把 codeburn 的逐条记录聚合成「日 × provider × 项目 × 模型」。
+ *
+ * 服务端只存聚合：本机单用户仅 claude 30 天就有 3502 条明细，聚合后是数十行；明细
+ * 留在本机由 codeburn 保管。会话数按去重的 sessionId 计，不是记录数。
+ */
+export function aggregateCodeburnRecords(text: string): LedgerDayRow[] | null {
+  let body: unknown;
+  try {
+    body = JSON.parse(text);
+  } catch {
+    return null;
+  }
+  if (!isRecord(body) || body.schema !== SUPPORTED_SCHEMA) return null;
+  const records = body.records;
+  if (!Array.isArray(records)) return null;
+
+  const buckets = new Map<string, LedgerDayRow & { sessionIds: Set<string> }>();
+  for (const raw of records) {
+    if (!isRecord(raw)) continue;
+    const timestamp = typeof raw.timestamp === "string" ? Date.parse(raw.timestamp) : Number.NaN;
+    const provider = typeof raw.provider === "string" ? raw.provider : null;
+    const model = typeof raw.model === "string" ? raw.model : null;
+    if (Number.isNaN(timestamp) || !provider || !model) continue;
+
+    const day = new Date(timestamp).toISOString().slice(0, 10);
+    const projectKey = projectLabel(raw.project);
+    const key = day + " " + provider + " " + projectKey + " " + model;
+    let row = buckets.get(key);
+    if (!row) {
+      row = {
+        day,
+        provider,
+        projectKey,
+        model,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        apiCalls: 0,
+        sessions: 0,
+        costUsd: 0,
+        sessionIds: new Set<string>(),
+      };
+      buckets.set(key, row);
+    }
+    row.inputTokens += count(raw.inputTokens);
+    row.outputTokens += count(raw.outputTokens);
+    row.cacheReadTokens += count(raw.cacheReadTokens);
+    row.cacheWriteTokens += count(raw.cacheWriteTokens);
+    row.costUsd += count(raw.cost);
+    row.apiCalls += 1;
+    if (typeof raw.sessionId === "string") row.sessionIds.add(raw.sessionId);
+  }
+
+  return [...buckets.values()].map(({ sessionIds, ...row }) => ({
+    ...row,
+    sessions: sessionIds.size,
+    // 成本累加后收敛到 6 位小数，免得浮点尾数一路带到服务端的 numeric(14,6)
+    costUsd: Math.round(row.costUsd * 1e6) / 1e6,
+  }));
+}
+
+/**
+ * 项目路径脱敏：只保留最后一段目录名。
+ *
+ * codeburn 的 `project` 是本机绝对路径，直接上报等于把用户的目录结构（含用户名、
+ * 客户名、项目代号）送到服务端。最后一段既足以辨认「哪个项目」，又不泄露其余层级。
+ */
+function projectLabel(value: unknown): string {
+  if (typeof value !== "string" || value.length === 0) return "";
+  const segments = value
+    .split("/")
+    .flatMap((part) => part.split("\\"))
+    .filter(Boolean);
+  return segments.length > 0 ? segments[segments.length - 1].slice(0, 200) : "";
 }

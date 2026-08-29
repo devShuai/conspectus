@@ -8,6 +8,7 @@ const NAV = [
   { href: "/", label: "总览", icon: "overview" },
   { href: "/subscriptions", label: "订阅", icon: "subscriptions" },
   { href: "/usage", label: "用量", icon: "usage" },
+  { href: "/spend", label: "消耗", icon: "usage" },
   { href: "/calendar", label: "日历", icon: "calendar" },
   { href: "/inbox", label: "收件箱", icon: "inbox" },
 ] as const;
