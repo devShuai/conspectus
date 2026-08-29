@@ -1,7 +1,7 @@
 {
   "//name": "带 scope 发布到自有 registry。scope 在 .npmrc 里绑定到 nexus.devshuai.com，npm 只会从那里解析它 —— 裸名字要靠每台机器都正确配置 registry，一旦某处回退到公共源就会去装同名的陌生包，而本 CLI 持有设备授权令牌与签名私钥。命令名仍是 conspectus-collect，不受 scope 影响。",
   "name": "@devshuai/conspectus-collect",
-  "version": "0.2.5",
+  "version": "0.3.0",
   "type": "module",
   "//publishConfig": "锁定发布目标。private 已移除（npm 拒绝发布 private 包），由 publishConfig 保证 npm publish 不会误发到公共 registry。",
   "publishConfig": {
@@ -29,6 +29,7 @@
     "test": "vitest run"
   },
   "dependencies": {
+    "codeburn": "^0.9.22",
     "openid-client": "^6.8.4"
   },
   "//devDependencies": "@types/node 必须由本包自己声明。源码通篇用 node:fs / node:path / process / Buffer，此前只是碰巧解析到了仓库根的 node_modules —— 在只安装 collector 依赖的环境（CI、或单独 clone 这个目录）里 tsc 会直接崩掉。版本与根保持一致，避免同一仓库出现两份 @types/node。",
@@ -36,5 +37,10 @@
     "@types/node": "^20.19.43",
     "typescript": "^5.9.3",
     "vitest": "^4.1.10"
-  }
+  },
+  "engines": {
+    "node": ">=22.13.0"
+  },
+  "//engines": "对齐 codeburn 的 engines：它要求 >=22.13.0，我们依赖它就不能声明更宽。",
+  "//dependencies": "codeburn（MIT）提供 claude 的 token 消耗：它已解决去重（message.id）与多根发现（含桌面端 local-agent-mode 嵌套树），自行实现极易做错。只依赖其 `export --format json` 契约，不 deep-import 内部模块。"
 }
