@@ -83,6 +83,10 @@ NODE_ENV=development npm ci --include=dev --no-audit --no-fund
 log "prisma generate"
 npx prisma generate
 log "next build"
+# 构建**需要** DATABASE_URL：next build 的 collect page data 阶段会导入路由模块，
+# 而 src/server/db.ts 在模块求值时就要求它。上面 set -a 源 env 文件时已经导出，
+# 这里不额外传 —— 但别把那句去掉，否则构建会以 "DATABASE_URL is required" 失败。
+# 只有 NEXT_PUBLIC_* 会被 Next 内联进客户端产物，env 里的密钥不会进构建结果。
 npm run build
 [ -f "$BUILD/.next/standalone/server.js" ] || \
   die ".next/standalone/server.js 不存在 —— next.config.ts 的 output: \"standalone\" 没生效"
@@ -91,15 +95,19 @@ npm run build
 log "组装 $TARGET"
 rm -rf "$TARGET" "$TARGET.tmp"
 mkdir -p "$TARGET.tmp"
-# standalone 自带裁剪过的 node_modules 与 server.js；static/public 是 Next 明确
-# 要求另行拷贝的两个目录（不在 tracing 范围内）
-cp -a "$BUILD/.next/standalone/." "$TARGET.tmp/"
-mkdir -p "$TARGET.tmp/.next"
-cp -a "$BUILD/.next/static" "$TARGET.tmp/.next/static"
-cp -a "$BUILD/public" "$TARGET.tmp/public"
-cp -a "$BUILD/prisma" "$TARGET.tmp/prisma"
-# 查询引擎二进制：tracing 认不出 .prisma 里按平台生成的那个文件，漏了就是运行时报错
-cp -a "$BUILD/node_modules/.prisma" "$TARGET.tmp/node_modules/.prisma"
+# 一律用「先建目录、再拷内容」的写法：standalone 里已经有 prisma/ 与
+# node_modules/.prisma/，直接 cp -a src dst 在 dst 已存在时会拷成 dst/src 嵌套。
+merge() { mkdir -p "$2" && cp -a "$1/." "$2/"; }
+
+# standalone 自带裁剪过的 node_modules、.next/server 与 server.js
+merge "$BUILD/.next/standalone" "$TARGET.tmp"
+# static 与 public 不在 tracing 范围内，Next 明确要求另行拷贝
+merge "$BUILD/.next/static" "$TARGET.tmp/.next/static"
+merge "$BUILD/public" "$TARGET.tmp/public"
+merge "$BUILD/prisma" "$TARGET.tmp/prisma"
+# 查询引擎二进制：tracing 目前会带上 libquery_engine-*.so.node，但那是 Next 的
+# 实现细节，漏了就是运行时 500。这份覆盖拷贝保证它一定在。
+merge "$BUILD/node_modules/.prisma" "$TARGET.tmp/node_modules/.prisma"
 # cron 单元执行的是 current/deploy/cron-jobs.sh
 mkdir -p "$TARGET.tmp/deploy"
 cp -a "$BUILD/deploy/cron-jobs.sh" "$TARGET.tmp/deploy/cron-jobs.sh"
