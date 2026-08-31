@@ -113,7 +113,7 @@ describe.skipIf(DISABLED)("collector device signature gate (#67)", () => {
       path: PATH,
       bodyText: BODY,
     });
-    expect(result).toEqual({ ok: false, reason: "device_not_found" });
+    expect(result).toEqual({ ok: false, reason: "device_revoked" });
   });
 
   it("rejects another user's device", async () => {

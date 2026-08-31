@@ -253,7 +253,7 @@ describe.skipIf(DISABLED)("POST /api/collect/usage", () => {
       }),
     );
     expect(res.status).toBe(403);
-    expect((await res.json()).error).toBe("device_not_found");
+    expect((await res.json()).error).toBe("device_revoked");
   });
 
   it("refuses a replayed request", async () => {

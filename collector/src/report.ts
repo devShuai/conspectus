@@ -1,6 +1,6 @@
 import type { CliConfig } from "./config.js";
 import { validAccessToken } from "./auth.js";
-import { ensureDevice, signRequest } from "./device.js";
+import { ensureDevice, resetMissingDevice, signRequest } from "./device.js";
 import { AGENT_VERSION } from "./version.js";
 import type { LedgerDayRow } from "./collectors/codeburn-export.js";
 import type { UsageReading } from "./types.js";
@@ -13,6 +13,56 @@ export interface ReportResult {
 
 const REPORT_PATH = "/api/collect/usage";
 const LEDGER_PATH = "/api/collect/ledger";
+
+function errorCode(text: string): string | undefined {
+  try {
+    const parsed = JSON.parse(text) as { error?: unknown };
+    return typeof parsed.error === "string" ? parsed.error : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Send a device-signed JSON request. A genuinely missing server-side device
+ * record is recoverable (for example after a database restore), so replace the
+ * local key and retry exactly once. `device_revoked` is deliberately excluded:
+ * automatic replacement would defeat single-device revocation.
+ */
+async function postSignedJson(
+  config: CliConfig,
+  accessToken: string,
+  path: string,
+  payload: (deviceId: string) => unknown,
+): Promise<{ response: Response; errorText?: string }> {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const device = await ensureDevice(config);
+    const bodyText = JSON.stringify(payload(device.deviceId));
+    const signed = signRequest(device, { method: "POST", path, bodyText });
+    const response = await fetch(`${config.serverUrl}${path}`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+        ...signed,
+      },
+      body: bodyText,
+    });
+    if (response.ok) return { response };
+
+    const errorText = await response.text().catch(() => "");
+    if (
+      attempt === 0 &&
+      response.status === 403 &&
+      errorCode(errorText) === "device_not_found"
+    ) {
+      await resetMissingDevice();
+      continue;
+    }
+    return { response, errorText };
+  }
+  throw new Error("signed request retry exhausted");
+}
 
 /**
  * Report failure. `retryable` marks transient conditions (network, 5xx, 429)
@@ -49,40 +99,24 @@ export async function reportReadings(
   readings: UsageReading[],
 ): Promise<ReportResult> {
   const tokens = await validAccessToken(config);
-  const device = await ensureDevice(config);
-  // 每次上报都带版本：注册那一次的值会随升级过期，而设备列表用它判断采集器是否
-  // 太旧。签名覆盖整个 body，多带一个字段不影响校验。
-  const bodyText = JSON.stringify({
-    deviceId: device.deviceId,
-    agentVersion: AGENT_VERSION,
-    readings,
-  });
-  const signed = signRequest(device, {
-    method: "POST",
-    path: REPORT_PATH,
-    bodyText,
-  });
-
-  let response: Response;
+  let sent: { response: Response; errorText?: string };
   try {
-    response = await fetch(`${config.serverUrl}${REPORT_PATH}`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${tokens.accessToken}`,
-        "content-type": "application/json",
-        ...signed,
-      },
-      body: bodyText,
-    });
+    sent = await postSignedJson(config, tokens.accessToken, REPORT_PATH, (deviceId) => ({
+      deviceId,
+      // 每次上报都带版本：注册那一次的值会随升级过期，而设备列表用它判断采集器是否
+      // 太旧。签名覆盖整个 body，多带一个字段不影响校验。
+      agentVersion: AGENT_VERSION,
+      readings,
+    }));
   } catch (cause) {
     throw new ReportError(
       `report failed: ${cause instanceof Error ? cause.message : String(cause)}`.slice(0, 200),
       true,
     );
   }
+  const { response, errorText = "" } = sent;
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    if (text.includes("timestamp_out_of_window")) {
+    if (errorText.includes("timestamp_out_of_window")) {
       throw new ReportError(
         "上报被拒：本机时间与服务器相差超过 5 分钟，请校准系统时间后重试",
         false,
@@ -91,7 +125,7 @@ export async function reportReadings(
     }
     const retryable = response.status === 429 || response.status >= 500;
     throw new ReportError(
-      `report failed: ${response.status} ${text.slice(0, 200)}`,
+      `report failed: ${response.status} ${errorText.slice(0, 200)}`,
       retryable,
       response.status,
     );
@@ -178,22 +212,18 @@ export async function reportLedger(
 ): Promise<{ accepted: number; rejected: Array<{ index: number; reason: string }> }> {
   if (days.length === 0) return { accepted: 0, rejected: [] };
   const tokens = await validAccessToken(config);
-  const device = await ensureDevice(config);
-  const bodyText = JSON.stringify({ deviceId: device.deviceId, agentVersion: AGENT_VERSION, days });
-  const signed = signRequest(device, { method: "POST", path: LEDGER_PATH, bodyText });
-
-  const response = await fetch(`${config.serverUrl}${LEDGER_PATH}`, {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${tokens.accessToken}`,
-      "content-type": "application/json",
-      ...signed,
-    },
-    body: bodyText,
-  });
+  const { response, errorText = "" } = await postSignedJson(
+    config,
+    tokens.accessToken,
+    LEDGER_PATH,
+    (deviceId) => ({ deviceId, agentVersion: AGENT_VERSION, days }),
+  );
   if (!response.ok) {
-    const text = await response.text().catch(() => "");
-    throw new ReportError(`ledger ${response.status} ${text.slice(0, 120)}`, response.status >= 500);
+    throw new ReportError(
+      `ledger ${response.status} ${errorText.slice(0, 120)}`,
+      response.status >= 500,
+      response.status,
+    );
   }
   return (await response.json()) as { accepted: number; rejected: Array<{ index: number; reason: string }> };
 }

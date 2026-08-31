@@ -9,6 +9,7 @@ import {
   ReportError,
   flushReportBuffer,
   isRetryableReportError,
+  reportLedger,
   reportReadings,
 } from "./report.js";
 import { enqueueFailedBatch, pendingBatches } from "./buffer.js";
@@ -51,6 +52,22 @@ function reading(bindingId: string): UsageReading {
     unit: "req",
     usedValue: "1",
     capturedAt: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function ledgerDay() {
+  return {
+    day: "2026-01-01",
+    provider: "claude",
+    projectKey: "project-1",
+    model: "claude-test",
+    inputTokens: 1,
+    outputTokens: 2,
+    cacheReadTokens: 3,
+    cacheWriteTokens: 4,
+    apiCalls: 1,
+    sessions: 1,
+    costUsd: 0.01,
   };
 }
 
@@ -137,6 +154,92 @@ describe("reportReadings error classification", () => {
     );
     const result = await reportReadings(CONFIG, [reading("b1")]);
     expect(result.accepted).toBe(1);
+  });
+
+  it("re-registers once when the server-side device record is missing", async () => {
+    const calls: Array<{ url: string; body: string; deviceId?: string }> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown, init?: { body?: string; headers?: Record<string, string> }) => {
+        calls.push({
+          url: String(url),
+          body: String(init?.body ?? ""),
+          deviceId: init?.headers?.["x-device-id"],
+        });
+        if (calls.length === 1) {
+          return httpResponse(403, { error: "device_not_found" });
+        }
+        if (String(url).endsWith("/api/collect/devices")) {
+          return httpResponse(201, { ok: true, deviceId: "dev-2" });
+        }
+        return httpResponse(202, { accepted: 1, rejected: [] });
+      }),
+    );
+
+    const result = await reportReadings(CONFIG, [reading("b1")]);
+
+    expect(result.accepted).toBe(1);
+    expect(calls.map((call) => call.url)).toEqual([
+      "https://c.example.com/api/collect/usage",
+      "https://c.example.com/api/collect/devices",
+      "https://c.example.com/api/collect/usage",
+    ]);
+    expect(JSON.parse(calls[0].body).deviceId).toBe("dev-1");
+    expect(JSON.parse(calls[2].body).deviceId).toBe("dev-2");
+    expect(calls[0].deviceId).toBe("dev-1");
+    expect(calls[2].deviceId).toBe("dev-2");
+    expect(store.map.get("device-key")).toBeTruthy();
+  });
+
+  it("does not replace a device that the user revoked", async () => {
+    const fetchMock = vi.fn(async () => httpResponse(403, { error: "device_revoked" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const cause = await reportReadings(CONFIG, [reading("b1")]).catch((e: unknown) => e);
+
+    expect(cause).toBeInstanceOf(ReportError);
+    expect((cause as Error).message).toContain("device_revoked");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(store.map.has("device-key")).toBe(true);
+  });
+
+  it("retries a missing device only once", async () => {
+    const fetchMock = vi.fn(async (url: unknown) =>
+      String(url).endsWith("/api/collect/devices")
+        ? httpResponse(201, { ok: true, deviceId: "dev-2" })
+        : httpResponse(403, { error: "device_not_found" }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const cause = await reportReadings(CONFIG, [reading("b1")]).catch((e: unknown) => e);
+
+    expect(cause).toBeInstanceOf(ReportError);
+    expect(isRetryableReportError(cause)).toBe(false);
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("uses the same missing-device recovery for ledger reports", async () => {
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: unknown) => {
+        urls.push(String(url));
+        if (urls.length === 1) return httpResponse(403, { error: "device_not_found" });
+        if (String(url).endsWith("/api/collect/devices")) {
+          return httpResponse(201, { ok: true, deviceId: "dev-ledger-2" });
+        }
+        return httpResponse(202, { accepted: 1, rejected: [] });
+      }),
+    );
+
+    const result = await reportLedger(CONFIG, [ledgerDay()]);
+
+    expect(result.accepted).toBe(1);
+    expect(urls).toEqual([
+      "https://c.example.com/api/collect/ledger",
+      "https://c.example.com/api/collect/devices",
+      "https://c.example.com/api/collect/ledger",
+    ]);
   });
 });
 

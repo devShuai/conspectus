@@ -5,7 +5,7 @@ import {
   randomUUID,
   sign,
 } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from "node:fs";
 import { hostname, platform } from "node:os";
 import { resolve } from "node:path";
 
@@ -112,6 +112,18 @@ export async function ensureDevice(config: CliConfig): Promise<StoredDevice> {
   await store.set(DEVICE_KEY_ACCOUNT, device.privateKey);
   writeDeviceFile(device.deviceId);
   return device;
+}
+
+/**
+ * Forget a device that the server explicitly says no longer exists.
+ *
+ * Callers must not use this for a revoked device: revocation is an intentional
+ * security boundary and silently registering a replacement would bypass it.
+ */
+export async function resetMissingDevice(): Promise<void> {
+  const store = await secretStore();
+  await store.delete(DEVICE_KEY_ACCOUNT);
+  if (existsSync(deviceFile())) unlinkSync(deviceFile());
 }
 
 export interface SignedHeaders {

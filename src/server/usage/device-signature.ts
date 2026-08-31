@@ -8,6 +8,7 @@ export const SIGNATURE_WINDOW_MS = 5 * 60 * 1000;
 export type DeviceGateFailure =
   | "device_signature_required"
   | "device_not_found"
+  | "device_revoked"
   | "timestamp_out_of_window"
   | "invalid_signature"
   | "replayed_nonce";
@@ -61,9 +62,10 @@ export async function verifyDeviceSignature(input: {
   }
 
   const device = await db.collectorDevice.findFirst({
-    where: { id: deviceId, userId: input.userId, revokedAt: null },
+    where: { id: deviceId, userId: input.userId },
   });
   if (!device) return { ok: false, reason: "device_not_found" };
+  if (device.revokedAt) return { ok: false, reason: "device_revoked" };
 
   const now = input.now ?? new Date();
   const ts = new Date(timestamp).getTime();
