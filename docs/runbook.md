@@ -20,7 +20,7 @@ curl -fsS -H "Authorization: Bearer $DEPLOY_PROBE_SECRET" "http://<app>/api/read
 
 ```bash
 cd docker
-cp .env.example .env   # 填全部 secret
+cp ../.env.example .env   # 填全部 secret；docker/ 下没有单独的模板
 docker compose up -d --build
 docker compose logs -f cron   # 观察任务执行
 ```
@@ -34,6 +34,78 @@ docker compose logs -f cron   # 观察任务执行
 - Cron：`vercel.json` 已声明 9 个 GET cron；**分钟级 dispatcher 需要 Pro**。
 - **Hobby 限制**：只有每日 cron 且任务数有限 → 部署时若检测到 Hobby，必须明确接受「通知 SLA 降级为每日一次」；`/api/cron/notification-dispatch` 无法分钟级运行。不能假装 09:00 与分钟重试可用。
 - 外部调度器替代：GitHub Actions cron 或自建 cron 容器 `curl -H "Authorization: Bearer $CRON_SECRET" https://<app>/api/cron/<job>`。
+
+## 形态 C：fedora 原生发布（conspectus.devshuai.com）
+
+与同机 certus 同一形态：`releases/<rev>` + `current` 软链 + 用户级 systemd，回滚就是把软链指回上一版。
+不用 Docker 是因为这台机器已经有原生 PostgreSQL 与 OpenResty，compose 会再起一套 PG 造成数据分裂。
+
+| 位置 | 内容 |
+| --- | --- |
+| `~/.local/opt/conspectus/build/` | ship.sh 投递的源码树，每次全量覆盖 |
+| `~/.local/opt/conspectus/releases/<rev>/` | 构建产物（standalone），保留最近 5 个 |
+| `~/.local/opt/conspectus/current` | → 当前 release |
+| `~/.local/opt/conspectus/backups/` | 迁移前的 `pg_dump -Fc`，保留最近 5 个 |
+| `~/.config/conspectus/conspectus.env` | 密钥，0600，不在仓库里，发布不覆盖 |
+| `~/.config/systemd/user/conspectus{,-cron}.{service,timer}` | 由 release.sh 安装 |
+
+构建在 fedora 本机做：`argon2` 是原生模块，不能从开发机拷贝二进制过去。
+
+### 一次性准备
+
+1. **certus 注册**：给 `conspectus` 这个 confidential client 加两个 URI——
+   redirect `https://conspectus.devshuai.com/api/auth/certus/callback`，
+   post-logout `https://conspectus.devshuai.com/logout/done`。少任何一个，登录会停在 certus 的 `invalid_redirect_uri`。
+2. **首次 ship**：`bash deploy/fedora/ship.sh`。env 文件不存在时 release.sh 生成模板（`AUTH_SECRET` / `CRON_SECRET` /
+   `DEPLOY_PROBE_SECRET` 当场随机生成）后**以 exit 2 停下**，不构建也不改任何服务。
+3. **填 3 个值**（`~/.config/conspectus/conspectus.env`，0600）：`CERTUS_CLIENT_SECRET`、`DATABASE_URL` 的库密码、
+   `CREDENTIAL_ENC_KEYS`。最后一个必须与开发机 `.env.local` **逐字节一致**——线上与开发是同一个库，换密钥等于把
+   已有密文（Session refresh/ID token、服务商凭证）全部锁死。留着 `REPLACE_ME` 时 release.sh 会报出行号并拒绝发布。
+4. **nginx vhost**（需要 root，release.sh 只把副本放到 `~/.config/conspectus/` 并提示）：
+
+```bash
+sudo install -m 644 ~/.config/conspectus/conspectus.devshuai.com.conf /usr/local/openresty/nginx/conf/conf.d/ && sudo /usr/local/openresty/nginx/sbin/nginx -t && sudo /usr/local/openresty/nginx/sbin/nginx -s reload
+```
+
+### 发布
+
+```bash
+bash deploy/fedora/ship.sh
+```
+
+投递用 `git archive HEAD`（`--dirty` 则是已跟踪文件的工作区内容），**结构上不可能把未跟踪文件带上服务器**——
+`.env.local`、`collector/.npmrc` 都在 `.gitignore` 里，换成目录同步就要靠一串 `--exclude` 记全，漏一条就是泄密。
+工作区不干净时默认拒绝发布。
+
+顺序：备份库 → `npm ci` → `prisma generate` → `next build` → 组装 release → **`prisma migrate deploy`** → 切软链 → 重启 →
+轮询 `/api/ready`。探针 60 秒内不 ready 就自动把软链指回上一版并重启，退出码非 0。
+
+**迁移在切软链之前**：新代码依赖新 schema。反过来（旧代码 + 新 schema）只在迁移只加不改时安全；破坏性迁移必须按
+expand/contract 拆成两次发布，否则自动回滚只回代码、回不了库。
+
+### 回滚
+
+```bash
+ssh fedora 'ln -sfn ~/.local/opt/conspectus/releases/<rev> ~/.local/opt/conspectus/current && systemctl --user restart conspectus'
+```
+
+库要一起回时用 `~/.local/opt/conspectus/backups/` 下对应的 dump（`pg_restore`）。
+
+### 排查
+
+```bash
+ssh fedora 'systemctl --user status conspectus conspectus-cron.timer --no-pager; journalctl --user -u conspectus -n 50 --no-pager'
+```
+
+- 启动即退出：多半是 §5.4 启动闸门，`journalctl` 里有具体变量名。`TEST_DATABASE_URL` 出现在 env 文件里会被直接拒绝。
+- 定时任务不跑：`systemctl --user list-timers conspectus-cron.timer`；节奏标记在 `~/.local/state/conspectus/cron/`，
+  删掉即让所有任务下一分钟各跑一次。
+- 单元文件改动不生效：release.sh 每次都会覆盖 `~/.config/systemd/user/` 下的三个单元，改要改仓库里的 `deploy/fedora/`。
+
+### 已知问题
+
+`@prisma/client` 目前在 `devDependencies`，而运行时代码 import 它。形态 C 不受影响（本机全量 `npm ci` 后构建，
+standalone 已把它 trace 进产物），但形态 A 的 `npm ci --omit=dev` 会漏掉它。
 
 ## 邮件入站（Cloudflare Email Worker，#59）
 

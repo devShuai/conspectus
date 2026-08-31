@@ -31,6 +31,10 @@ export function responseHeaderRules() {
 const nextConfig: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   reactStrictMode: true,
+  // 自有服务器部署（docker/Dockerfile 与 deploy/fedora/）交付的是 .next/standalone：
+  // 一个自带 server.js 和裁剪过 node_modules 的目录，不需要在运行环境里装依赖。
+  // 缺这一行时该目录压根不会生成，两条部署路径都会在拷贝阶段失败。
+  output: "standalone",
   async headers() {
     return responseHeaderRules();
   },

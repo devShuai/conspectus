@@ -1,0 +1,5 @@
+# 部署产物只被 Linux 上的 shell / systemd / nginx 解析，CRLF 会让它们直接失效
+# （bash 报 $'\r': command not found，systemd 把 \r 当成值的一部分）。
+# 仓库在 Windows 上开发、core.autocrlf=true，所以必须显式钉住 LF。
+deploy/** text eol=lf
+docker/** text eol=lf

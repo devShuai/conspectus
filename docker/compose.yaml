@@ -39,12 +39,12 @@ services:
     environment:
       CRON_SECRET: ${CRON_SECRET}
     volumes:
-      - ./cron-jobs.sh:/cron-jobs.sh:ro
+      - ../deploy/cron-jobs.sh:/cron-jobs.sh:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
         while true; do
-          /bin/sh /cron-jobs.sh http://app:3000 "$$CRON_SECRET"
+          /bin/sh /cron-jobs.sh http://app:3000
           sleep 60
         done
     depends_on:

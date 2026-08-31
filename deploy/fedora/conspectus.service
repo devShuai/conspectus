@@ -1,0 +1,27 @@
+# 用户级 systemd 单元（与 certus.service 同形态）。安装位置：~/.config/systemd/user/
+# 由 deploy/fedora/release.sh 自动拷贝，不要手工改这台机器上的副本 —— 下次发布会覆盖。
+[Unit]
+Description=Conspectus Subscription Asset Center
+After=default.target
+
+[Service]
+Type=simple
+# 先读 env 文件，再由下面的 Environment= 覆盖：NODE_ENV 与监听地址是正确性闸门
+# （NODE_ENV != production 时 §5.4 的 TEST_DATABASE_URL 拦截与 Secure Cookie 都不生效），
+# 不允许被 env 文件里的手误改掉。
+EnvironmentFile=%h/.config/conspectus/conspectus.env
+Environment=NODE_ENV=production
+Environment=PORT=3000
+# 只绑回环：对外一律经 OpenResty，进程本身不监听 0.0.0.0
+Environment=HOSTNAME=127.0.0.1
+WorkingDirectory=%h/.local/opt/conspectus/current
+ExecStart=/usr/bin/node %h/.local/opt/conspectus/current/server.js
+Restart=on-failure
+RestartSec=3s
+TimeoutStopSec=15s
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077
+
+[Install]
+WantedBy=default.target

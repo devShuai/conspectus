@@ -1,0 +1,18 @@
+# 由 conspectus-cron.timer 每分钟触发一次；任务本身的频率由 cron-jobs.sh 的
+# 时间戳标记决定（design §5.4 的表驱动调度），与 vercel.json 的 crons 同一张表。
+[Unit]
+Description=Conspectus scheduled job dispatch
+After=conspectus.service
+
+[Service]
+Type=oneshot
+# 只为拿 CRON_SECRET；密钥不进 ExecStart 的命令行（/proc/<pid>/cmdline 同机可读）
+EnvironmentFile=%h/.config/conspectus/conspectus.env
+# 持久状态目录：PrivateTmp 下 /tmp 每次拉起都是空的，标记文件必须落在这里，
+# 否则日级任务（purge/fx/certus-capabilities）会退化成每分钟一次
+StateDirectory=conspectus
+Environment=STATE_DIR=%S/conspectus/cron
+ExecStart=/bin/sh %h/.local/opt/conspectus/current/deploy/cron-jobs.sh http://127.0.0.1:3000
+NoNewPrivileges=true
+PrivateTmp=true
+UMask=0077

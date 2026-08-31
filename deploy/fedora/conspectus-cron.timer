@@ -1,0 +1,13 @@
+[Unit]
+Description=Conspectus scheduled job dispatch (every minute)
+
+[Timer]
+# 开机后等应用起来再开始；此后按「上一轮执行完 + 1 分钟」推进，
+# 不用 OnCalendar 是为了避免上一轮没跑完时堆叠
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+Unit=conspectus-cron.service
+
+[Install]
+WantedBy=timers.target
