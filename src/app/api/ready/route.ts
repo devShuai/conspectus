@@ -66,10 +66,12 @@ export async function GET(request: Request): Promise<NextResponse> {
     );
   }
 
-  // 空格分隔（Postgres TEXT 不允许 NUL， issuer/clientId 均不含空格）
-  const key = `${auth.issuerIdentifier} ${auth.clientId}`;
+  const expectedCliSource = process.env.CERTUS_CLI_CLIENT_ID?.trim() || "conspectus-cli";
+  // 空格分隔（Postgres TEXT 不允许 NUL，issuer/clientId 均不含空格）。CLI client
+  // 也是能力契约的一部分；轮换生产 CLI ID 后不能复用旧 ID 的 deep-ready 缓存。
+  const key = `${auth.issuerIdentifier} ${auth.clientId} ${expectedCliSource}`;
   try {
-    const body = await deepProbeCached(key, auth);
+    const body = await deepProbeCached(key, auth, expectedCliSource);
     return jsonFrom(body);
   } catch {
     return NextResponse.json(
@@ -129,8 +131,11 @@ function latestLocalMigration(): string | null {
   }
 }
 
-async function probeCertus(auth: AuthConfig): Promise<Record<string, unknown>> {
-  const evidence = await fetchClientCapabilities(auth);
+async function probeCertus(
+  auth: AuthConfig,
+  expectedCliSource: string,
+): Promise<Record<string, unknown>> {
+  const evidence = await fetchClientCapabilities(auth, undefined, { expectedCliSource });
   const evaluation = evaluateCapabilities(evidence);
   return {
     ok:
@@ -151,7 +156,11 @@ async function probeCertus(auth: AuthConfig): Promise<Record<string, unknown>> {
  * 数据库版 60s 缓存 + single-flight：lease CAS 保证全集群同一时刻最多一个
  * worker 请求 certus；没抢到租约的实例轮询等待持租者写入缓存行。
  */
-async function deepProbeCached(key: string, auth: AuthConfig): Promise<unknown> {
+async function deepProbeCached(
+  key: string,
+  auth: AuthConfig,
+  expectedCliSource: string,
+): Promise<unknown> {
   const now = new Date();
   const cached = await db.deepReadyProbe.findUnique({ where: { cacheKey: key } });
   if (cached && now.getTime() - cached.checkedAt.getTime() < DEEP_CACHE_TTL_MS) {
@@ -161,7 +170,7 @@ async function deepProbeCached(key: string, auth: AuthConfig): Promise<unknown> 
   const token = randomUUID();
   if (await acquireProbeLease(key, token, now)) {
     try {
-      const body = await probeCertus(auth);
+      const body = await probeCertus(auth, expectedCliSource);
       await db.deepReadyProbe.updateMany({
         where: { cacheKey: key, leaseToken: token },
         data: {
@@ -192,7 +201,7 @@ async function deepProbeCached(key: string, auth: AuthConfig): Promise<unknown> 
     }
   }
   // 持租者疑似死亡（进程被杀/卡死）：兜底直探，lease 过期机制保证后续可恢复
-  return probeCertus(auth);
+  return probeCertus(auth, expectedCliSource);
 }
 
 async function acquireProbeLease(

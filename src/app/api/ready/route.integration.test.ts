@@ -71,6 +71,28 @@ describe.skipIf(DISABLED)("ready route (#121)", () => {
     expect(fetchClientCapabilities).toHaveBeenCalledTimes(1);
   });
 
+  it("evaluates capabilities against the configured production CLI client", async () => {
+    const previous = process.env.CERTUS_CLI_CLIENT_ID;
+    process.env.CERTUS_CLI_CLIENT_ID = "conspectus-cli-prod";
+    fetchClientCapabilities.mockResolvedValue({
+      ...goodEvidence,
+      introspectionSources: ["conspectus-cli-prod"],
+    });
+
+    try {
+      const response = await GET(deepRequest(process.env.DEPLOY_PROBE_SECRET!));
+      expect(response.status).toBe(200);
+      expect(fetchClientCapabilities).toHaveBeenCalledWith(
+        expect.any(Object),
+        undefined,
+        { expectedCliSource: "conspectus-cli-prod" },
+      );
+    } finally {
+      if (previous === undefined) delete process.env.CERTUS_CLI_CLIENT_ID;
+      else process.env.CERTUS_CLI_CLIENT_ID = previous;
+    }
+  });
+
   it("concurrent deep probes single-flight through the database lease", async () => {
     fetchClientCapabilities.mockImplementation(
       () => new Promise((resolve) => setTimeout(() => resolve(goodEvidence), 100)),
