@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 
 /**
  * #91 回归：/api/cron/notification-digest 路由存在但 vercel.json 与
- * docker/cron-jobs.sh 均未列入，批次即便创建也永不投递。
+ * deploy/cron-jobs.sh 均未列入，批次即便创建也永不投递。
  * 这里把「每个 cron 路由目录都必须出现在两处调度配置里」固化成契约。
  */
 const cronDir = fileURLToPath(new URL(".", import.meta.url));
@@ -23,7 +23,7 @@ describe("cron scheduling contract (#91)", () => {
   const vercel = JSON.parse(readFileSync(`${repoRoot}/vercel.json`, "utf8")) as {
     crons: Array<{ path: string; schedule: string }>;
   };
-  const cronJobs = readFileSync(`${repoRoot}/docker/cron-jobs.sh`, "utf8");
+  const cronJobs = readFileSync(`${repoRoot}/deploy/cron-jobs.sh`, "utf8");
 
   it("found at least one cron route directory", () => {
     expect(routes.length).toBeGreaterThan(0);
