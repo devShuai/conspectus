@@ -1,6 +1,6 @@
 import type { CliConfig } from "./config.js";
 import { validAccessToken } from "./auth.js";
-import { ensureDevice, resetMissingDevice, signRequest } from "./device.js";
+import { ensureDevice, resetLocalDevice, signRequest } from "./device.js";
 import { AGENT_VERSION } from "./version.js";
 import type { LedgerDayRow } from "./collectors/codeburn-export.js";
 import type { UsageReading } from "./types.js";
@@ -56,7 +56,7 @@ async function postSignedJson(
       response.status === 403 &&
       errorCode(errorText) === "device_not_found"
     ) {
-      await resetMissingDevice();
+      await resetLocalDevice();
       continue;
     }
     return { response, errorText };
@@ -116,6 +116,13 @@ export async function reportReadings(
   }
   const { response, errorText = "" } = sent;
   if (!response.ok) {
+    if (errorCode(errorText) === "device_revoked") {
+      throw new ReportError(
+        "设备已被撤销；如需重新连接，请运行 'conspectus-collect login --replace-device' 并完成授权",
+        false,
+        response.status,
+      );
+    }
     if (errorText.includes("timestamp_out_of_window")) {
       throw new ReportError(
         "上报被拒：本机时间与服务器相差超过 5 分钟，请校准系统时间后重试",
@@ -219,6 +226,13 @@ export async function reportLedger(
     (deviceId) => ({ deviceId, agentVersion: AGENT_VERSION, days }),
   );
   if (!response.ok) {
+    if (errorCode(errorText) === "device_revoked") {
+      throw new ReportError(
+        "设备已被撤销；如需重新连接，请运行 'conspectus-collect login --replace-device' 并完成授权",
+        false,
+        response.status,
+      );
+    }
     throw new ReportError(
       `ledger ${response.status} ${errorText.slice(0, 120)}`,
       response.status >= 500,

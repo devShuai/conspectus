@@ -3,7 +3,7 @@ import { stdin as input, stdout as output } from "node:process";
 
 import { loadCliConfig, saveCliConfig } from "./config.js";
 import { deviceLogin, logout } from "./auth.js";
-import { ensureDevice } from "./device.js";
+import { ensureDevice, replaceDeviceAfterLogin } from "./device.js";
 import {
   fetchManifest,
   flushReportBuffer,
@@ -51,6 +51,7 @@ async function main(): Promise<void> {
     }
     case "login": {
       const config = loadCliConfig();
+      const replaceDevice = args.includes("--replace-device");
       await deviceLogin(config, (code: DeviceLoginResult) => {
         console.log("请在浏览器打开并输入代码:");
         console.log(`  ${code.verificationUri}`);
@@ -63,7 +64,12 @@ async function main(): Promise<void> {
       // 只在首次 run 的上报路径里发生（report.ts 调 ensureDevice），于是 login
       // 成功后「设置 / 采集设备」始终是空的 —— 用户既无法确认本机是否登记成功，
       // 也无法撤销一台还没上报过的设备。ensureDevice 幂等，重复 login 不会重复注册。
-      const device = await ensureDevice(config);
+      // Replacement is intentionally after deviceLogin: a revoked device may
+      // only be replaced after the user explicitly authorizes a fresh Device
+      // Grant. A failed/expired grant therefore leaves local device state intact.
+      const device = replaceDevice
+        ? await replaceDeviceAfterLogin(config)
+        : await ensureDevice(config);
       console.log(`✓ 已连接，设备已注册: ${device.deviceId}`);
       return;
     }
@@ -161,7 +167,7 @@ async function main(): Promise<void> {
     }
     default:
       console.log(
-        "Usage: conspectus-collect <configure|login|status|run [--dry-run]|diagnose|logout>",
+        "Usage: conspectus-collect <configure|login [--replace-device]|status|run [--dry-run]|diagnose|logout>",
       );
       process.exitCode = 1;
   }

@@ -117,13 +117,24 @@ export async function ensureDevice(config: CliConfig): Promise<StoredDevice> {
 /**
  * Forget a device that the server explicitly says no longer exists.
  *
- * Callers must not use this for a revoked device: revocation is an intentional
- * security boundary and silently registering a replacement would bypass it.
+ * Automatic callers must not use this for a revoked device: revocation is an
+ * intentional security boundary. The only allowed revoked-device path is
+ * `replaceDeviceAfterLogin`, after a fresh explicit Device Grant succeeds.
  */
-export async function resetMissingDevice(): Promise<void> {
+export async function resetLocalDevice(): Promise<void> {
   const store = await secretStore();
   await store.delete(DEVICE_KEY_ACCOUNT);
   if (existsSync(deviceFile())) unlinkSync(deviceFile());
+}
+
+/**
+ * Replace the local device after a fresh, explicit Device Grant completed.
+ * The CLI exposes this only through `login --replace-device` so a revoked
+ * device can never silently re-arm itself during a scheduled run.
+ */
+export async function replaceDeviceAfterLogin(config: CliConfig): Promise<StoredDevice> {
+  await resetLocalDevice();
+  return ensureDevice(config);
 }
 
 export interface SignedHeaders {

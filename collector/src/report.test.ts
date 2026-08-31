@@ -198,7 +198,7 @@ describe("reportReadings error classification", () => {
     const cause = await reportReadings(CONFIG, [reading("b1")]).catch((e: unknown) => e);
 
     expect(cause).toBeInstanceOf(ReportError);
-    expect((cause as Error).message).toContain("device_revoked");
+    expect((cause as Error).message).toContain("login --replace-device");
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(store.map.has("device-key")).toBe(true);
   });

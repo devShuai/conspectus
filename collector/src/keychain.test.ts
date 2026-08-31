@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { FileSecretStore, setSecretStoreForTests, type SecretStore } from "./keychain.js";
 import { clearTokens, loadTokens, storeTokens } from "./config.js";
-import { ensureDevice } from "./device.js";
+import { ensureDevice, replaceDeviceAfterLogin } from "./device.js";
 import type { StoredToken } from "./types.js";
 
 /** In-memory SecretStore so tests never touch the real OS keychain. */
@@ -150,5 +150,35 @@ describe("device key storage (keychain)", () => {
       unknown
     >;
     expect(onDisk).toEqual({ deviceId: "dev-legacy" });
+  });
+
+  it("explicitly replaces the local device after a fresh login", async () => {
+    const { privateKey } = generateKeyPairSync("ed25519");
+    const oldKey = privateKey.export({ format: "der", type: "pkcs8" }).toString("base64");
+    writeFileSync(join(dir, "device.json"), JSON.stringify({ deviceId: "dev-revoked" }));
+    await store.set("device-key", oldKey);
+    await storeTokens(TOKENS);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        status: 201,
+        json: async () => ({ deviceId: "dev-replacement" }),
+        text: async () => "",
+      }) as Response),
+    );
+
+    const replacement = await replaceDeviceAfterLogin({
+      serverUrl: "https://c.example.com",
+      issuer: "https://auth.example.com",
+      cliClientId: "conspectus-cli",
+    });
+
+    expect(replacement.deviceId).toBe("dev-replacement");
+    expect(replacement.privateKey).not.toBe(oldKey);
+    expect(store.map.get("device-key")).toBe(replacement.privateKey);
+    expect(JSON.parse(readFileSync(join(dir, "device.json"), "utf8"))).toEqual({
+      deviceId: "dev-replacement",
+    });
   });
 });
