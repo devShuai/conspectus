@@ -1,7 +1,7 @@
 {
   "//name": "带 scope 发布到自有 registry。scope 在 .npmrc 里绑定到 nexus.devshuai.com，npm 只会从那里解析它 —— 裸名字要靠每台机器都正确配置 registry，一旦某处回退到公共源就会去装同名的陌生包，而本 CLI 持有设备授权令牌与签名私钥。命令名仍是 conspectus-collect，不受 scope 影响。",
   "name": "@devshuai/conspectus-collect",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "type": "module",
   "//publishConfig": "锁定发布目标。private 已移除（npm 拒绝发布 private 包），由 publishConfig 保证 npm publish 不会误发到公共 registry。",
   "publishConfig": {

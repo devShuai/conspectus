@@ -10,9 +10,15 @@ import {
 import { introspectCliToken } from "@/server/usage/device-auth";
 import { verifyDeviceSignature } from "@/server/usage/device-signature";
 import {
-  ingestLedgerDays,
+  ingestLedger,
   LedgerDaySchema,
+  LedgerModelQualitySchema,
+  LedgerSessionSchema,
+  LedgerToolSchema,
+  LEDGER_MODELS_LIMIT,
   LEDGER_ROWS_LIMIT,
+  LEDGER_SESSIONS_LIMIT,
+  LEDGER_TOOLS_LIMIT,
 } from "@/server/usage/ledger";
 
 export const runtime = "nodejs";
@@ -76,16 +82,49 @@ export async function POST(request: Request): Promise<NextResponse> {
     return NextResponse.json({ error: "invalid_json" }, { status: 400 });
   }
 
-  const raw = (parsed as { days?: unknown }).days;
-  if (Array.isArray(raw) && raw.length > LEDGER_ROWS_LIMIT) {
-    return NextResponse.json({ error: "too_many_rows" }, { status: 413 });
+  const payload = parsed as {
+    days?: unknown;
+    sessions?: unknown;
+    tools?: unknown;
+    models?: unknown;
+  };
+
+  // 四张表各自限长。上限先于解析检查：先把上万行跑完 Zod 再拒绝，等于自带 DoS。
+  for (const [value, limit] of [
+    [payload.days, LEDGER_ROWS_LIMIT],
+    [payload.sessions, LEDGER_SESSIONS_LIMIT],
+    [payload.tools, LEDGER_TOOLS_LIMIT],
+    [payload.models, LEDGER_MODELS_LIMIT],
+  ] as const) {
+    if (Array.isArray(value) && value.length > limit) {
+      return NextResponse.json({ error: "too_many_rows" }, { status: 413 });
+    }
   }
-  const days = LedgerDaySchema.array().safeParse(raw);
+
+  const days = LedgerDaySchema.array().safeParse(payload.days);
   if (!days.success) {
     return NextResponse.json({ error: "invalid_days" }, { status: 400 });
   }
+  // 后三张表缺省即空数组：0.4.x 的采集器只发 days，升级前照旧能上报
+  const sessions = LedgerSessionSchema.array().safeParse(payload.sessions ?? []);
+  if (!sessions.success) {
+    return NextResponse.json({ error: "invalid_sessions" }, { status: 400 });
+  }
+  const tools = LedgerToolSchema.array().safeParse(payload.tools ?? []);
+  if (!tools.success) {
+    return NextResponse.json({ error: "invalid_tools" }, { status: 400 });
+  }
+  const models = LedgerModelQualitySchema.array().safeParse(payload.models ?? []);
+  if (!models.success) {
+    return NextResponse.json({ error: "invalid_models" }, { status: 400 });
+  }
 
-  const result = await ingestLedgerDays(user.id, days.data);
+  const result = await ingestLedger(user.id, {
+    days: days.data,
+    sessions: sessions.data,
+    tools: tools.data,
+    models: models.data,
+  });
   await db.collectorDevice.update({
     where: { id: gate.deviceId },
     data: { lastSeenAt: new Date(), lastReportStatus: "ok" },

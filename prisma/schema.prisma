@@ -122,6 +122,9 @@ model User {
   priceChanges PriceChange[]
   collectorDevices CollectorDevice[]
   usageLedgerDays UsageLedgerDay[]
+  usageLedgerSessions UsageLedgerSession[]
+  usageToolStats UsageToolStat[]
+  usageModelQuality UsageModelQuality[]
   inboundEmails InboundEmail[]
   importDrafts ImportDraft[]
 
@@ -909,22 +912,103 @@ model UsageLedgerDay {
   /// 脱敏后的项目标识；无项目维度的来源用空串
   projectKey String @db.Text
   model      String @db.Text
+  /// codeburn 的任务分类（coding / debugging / delegation …）；来源无该维度时空串
+  category   String @default("") @db.Text
+  /// 委派给子代理时的代理类型；无则空串
+  subagent   String @default("") @db.Text
   inputTokens      BigInt @default(0)
   outputTokens     BigInt @default(0)
+  /// 推理 token：codex / grok 的成本大头，与 input/output 分开计
+  reasoningTokens  BigInt @default(0)
   cacheReadTokens  BigInt @default(0)
   cacheWriteTokens BigInt @default(0)
   apiCalls   Int @default(0)
+  /// 该行内的去重会话数。**不可跨行相加**：同一会话横跨多天多模型多分类，
+  /// 相加会重复计数（实测 32 个被加成 220）。会话总数取自 UsageLedgerSession。
   sessions   Int @default(0)
   /// 直接采信采集器上报的成本（#143 决定），服务端不另维护价格表
   costUsd    Decimal @default(0) @db.Decimal(14, 6)
+  /// 本地模型 / 订阅代理折算出的「省下多少」，与实付成本分列
+  savedUsd   Decimal @default(0) @db.Decimal(14, 6)
   capturedAt DateTime @db.Timestamptz
   createdAt  DateTime @default(now()) @db.Timestamptz
   updatedAt  DateTime @updatedAt @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId, day, provider, projectKey, model])
-  @@index([userId, day])
-  @@index([userId, provider, day])
+  @@unique([userId, day, provider, projectKey, model, category, subagent], map: "usage_ledger_days_unique")
+  @@index([userId, day], map: "usage_ledger_days_user_day")
+  @@index([userId, provider, day], map: "usage_ledger_days_user_provider_day")
   @@map("usage_ledger_days")
+}
+
+/// codeburn 每会话明细（30 天窗口）。与 UsageLedgerDay 不同，这是**快照**：
+/// 每次上报整体替换该用户的全部行，因为 codeburn 每轮给的是同一个滚动窗口。
+model UsageLedgerSession {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  /// codeburn 的会话 id（来源侧的不透明标识）
+  sessionId  String @db.Text
+  projectKey String @db.Text
+  provider   String @db.Text
+  startedAt  DateTime @db.Timestamptz
+  costUsd    Decimal @default(0) @db.Decimal(14, 6)
+  savedUsd   Decimal @default(0) @db.Decimal(14, 6)
+  apiCalls   Int @default(0)
+  turns      Int @default(0)
+  capturedAt DateTime @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, sessionId])
+  @@index([userId, startedAt])
+  @@map("usage_ledger_sessions")
+}
+
+/// 工具与 MCP 的调用分布快照。codeburn 只按 30 天窗口给总量，没有日维度，
+/// 所以不建时间序列，每次上报整体替换。
+model UsageToolStat {
+  id         String @id @default(uuid()) @db.Uuid
+  userId     String @db.Uuid
+  /// tool | mcp
+  kind       String @db.Text
+  name       String @db.Text
+  calls      Int @default(0)
+  sharePct   Decimal @default(0) @db.Decimal(6, 2)
+  capturedAt DateTime @db.Timestamptz
+  createdAt  DateTime @default(now()) @db.Timestamptz
+  updatedAt  DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, name])
+  @@index([userId, kind])
+  @@map("usage_tool_stats")
+}
+
+/// 按模型的质量指标快照（30 天窗口）：一次成型率、每次编辑的重试与成本。
+/// model 是 codeburn 的展示名，与 UsageLedgerDay.model 的原始 id 不是一个键，
+/// 故意不做关联 —— 强行 join 会在改名时静默丢行。
+model UsageModelQuality {
+  id             String @id @default(uuid()) @db.Uuid
+  userId         String @db.Uuid
+  model          String @db.Text
+  costUsd        Decimal @default(0) @db.Decimal(14, 6)
+  savedUsd       Decimal @default(0) @db.Decimal(14, 6)
+  sharePct       Decimal @default(0) @db.Decimal(6, 2)
+  apiCalls       Int @default(0)
+  editTurns      Int @default(0)
+  oneShotRatePct Decimal @default(0) @db.Decimal(6, 2)
+  retriesPerEdit Decimal @default(0) @db.Decimal(10, 2)
+  costPerEditUsd Decimal @default(0) @db.Decimal(14, 6)
+  capturedAt     DateTime @db.Timestamptz
+  createdAt      DateTime @default(now()) @db.Timestamptz
+  updatedAt      DateTime @updatedAt @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, model])
+  @@map("usage_model_quality")
 }

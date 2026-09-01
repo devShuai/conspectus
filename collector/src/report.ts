@@ -2,7 +2,7 @@ import type { CliConfig } from "./config.js";
 import { validAccessToken } from "./auth.js";
 import { ensureDevice, resetLocalDevice, signRequest } from "./device.js";
 import { AGENT_VERSION } from "./version.js";
-import type { LedgerDayRow } from "./collectors/codeburn-export.js";
+import type { CodeburnLedger } from "./collectors/codeburn-export.js";
 import type { UsageReading } from "./types.js";
 import { pendingBatches, removeBatch } from "./buffer.js";
 
@@ -215,15 +215,29 @@ export async function fetchManifest(config: CliConfig): Promise<ManifestBinding[
  */
 export async function reportLedger(
   config: CliConfig,
-  days: LedgerDayRow[],
+  ledger: CodeburnLedger,
 ): Promise<{ accepted: number; rejected: Array<{ index: number; reason: string }> }> {
-  if (days.length === 0) return { accepted: 0, rejected: [] };
+  const { days, sessions, tools, models, sourceCurrency } = ledger;
+  // 四张表任一有内容就值得上报：装了 codeburn 但 30 天内无消耗时整包为空，
+  // 此时没必要打网络。
+  if (days.length + sessions.length + tools.length + models.length === 0) {
+    return { accepted: 0, rejected: [] };
+  }
   const tokens = await validAccessToken(config);
   const { response, errorText = "" } = await postSignedJson(
     config,
     tokens.accessToken,
     LEDGER_PATH,
-    (deviceId) => ({ deviceId, agentVersion: AGENT_VERSION, days }),
+    (deviceId) => ({
+      deviceId,
+      agentVersion: AGENT_VERSION,
+      // 采集器已把非 USD 折回 USD；带上原币种是为了服务端排查金额异常时有据可查
+      sourceCurrency,
+      days,
+      sessions,
+      tools,
+      models,
+    }),
   );
   if (!response.ok) {
     if (errorCode(errorText) === "device_revoked") {

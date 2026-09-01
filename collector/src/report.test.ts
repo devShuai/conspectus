@@ -61,13 +61,28 @@ function ledgerDay() {
     provider: "claude",
     projectKey: "project-1",
     model: "claude-test",
+    category: "coding",
+    subagent: "",
     inputTokens: 1,
     outputTokens: 2,
+    reasoningTokens: 5,
     cacheReadTokens: 3,
     cacheWriteTokens: 4,
     apiCalls: 1,
     sessions: 1,
     costUsd: 0.01,
+    savedUsd: 0,
+  };
+}
+
+function ledgerBundle() {
+  return {
+    generatedAt: new Date("2026-01-01T00:00:00Z"),
+    sourceCurrency: "USD",
+    days: [ledgerDay()],
+    sessions: [],
+    tools: [],
+    models: [],
   };
 }
 
@@ -232,7 +247,7 @@ describe("reportReadings error classification", () => {
       }),
     );
 
-    const result = await reportLedger(CONFIG, [ledgerDay()]);
+    const result = await reportLedger(CONFIG, ledgerBundle());
 
     expect(result.accepted).toBe(1);
     expect(urls).toEqual([

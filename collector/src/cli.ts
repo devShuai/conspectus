@@ -123,10 +123,25 @@ async function main(): Promise<void> {
 
       // 消耗流水账（#143）：与读数各走各的端点，一侧失败不影响另一侧
       // 此处已过 dry-run 的提前返回，无需再判
-      let ledger: { accepted: number } | { error: string };
+      let ledger:
+        | { accepted: number; days: number; sessions: number; tools: number; models: number }
+        | { error: string };
       try {
-        const rows = await runCodeburnLedger("claude");
-        ledger = rows ? await reportLedger(config, rows) : { error: "导出为空或 schema 不符" };
+        // 不传 provider = 全部来源。codeburn 支持 41 个工具，写死 claude 会把
+        // codex / kimi / copilot 等的消耗整段丢掉。
+        const bundle = await runCodeburnLedger();
+        if (bundle) {
+          const result = await reportLedger(config, bundle);
+          ledger = {
+            ...result,
+            days: bundle.days.length,
+            sessions: bundle.sessions.length,
+            tools: bundle.tools.length,
+            models: bundle.models.length,
+          };
+        } else {
+          ledger = { error: "导出为空或 schema 不符" };
+        }
       } catch (cause) {
         ledger = { error: (cause instanceof Error ? cause.message : String(cause)).slice(0, 160) };
       }
