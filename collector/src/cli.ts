@@ -1,7 +1,7 @@
 import { createInterface } from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 
-import { loadCliConfig, saveCliConfig } from "./config.js";
+import { loadCliConfig, saveCliConfig, type CliConfig } from "./config.js";
 import { deviceLogin, logout } from "./auth.js";
 import { ensureDevice, replaceDeviceAfterLogin } from "./device.js";
 import {
@@ -13,6 +13,8 @@ import {
   type ReportResult,
 } from "./report.js";
 import { runCodeburnLedger } from "./collectors/codeburn-export.js";
+import { AGENT_VERSION } from "./version.js";
+import { renderShow, summarizeLedger, type ShowModel } from "./ui/show.js";
 import { enqueueFailedBatch, bufferStats } from "./buffer.js";
 import { runDiagnose } from "./diagnose.js";
 import { listCollectors } from "./collectors/registry.js";
@@ -71,6 +73,103 @@ async function main(): Promise<void> {
         ? await replaceDeviceAfterLogin(config)
         : await ensureDevice(config);
       console.log(`✓ 已连接，设备已注册: ${device.deviceId}`);
+      return;
+    }
+    case "show": {
+      // 本地展示：把 diagnose 的连接/缓冲区、manifest 的绑定与本轮读数、
+      // 以及 codeburn 的消耗汇总拼成一页。全程只读，不上报任何东西。
+      const noSpend = args.includes("--no-spend");
+      const diagnostic = await runDiagnose();
+      const model: ShowModel = {
+        generatedAt: new Date(),
+        agentVersion: AGENT_VERSION,
+        server: {
+          url: diagnostic.config.serverUrl,
+          issuer: diagnostic.config.issuer,
+          reachable: diagnostic.connectivity.server?.reachable,
+          status: diagnostic.connectivity.server?.status,
+          error: diagnostic.connectivity.server?.error,
+        },
+        auth: {
+          loggedIn: diagnostic.tokens.hasAccessToken,
+          expiresAt: diagnostic.tokens.expiresAt,
+          expired: diagnostic.tokens.expired,
+        },
+        device: {
+          registered: diagnostic.device.registered,
+          deviceId: diagnostic.device.deviceId,
+        },
+        bindings: null,
+        collectorErrors: [],
+        warnings: [],
+        spend: null,
+        buffer: diagnostic.buffer,
+      };
+
+      // 绑定与读数需要配置 + 登录；缺任何一项都降级显示，而不是整页报错
+      let config: CliConfig | null = null;
+      try {
+        config = loadCliConfig();
+      } catch (cause) {
+        model.manifestError = cause instanceof Error ? cause.message : String(cause);
+      }
+      if (config && !diagnostic.tokens.hasAccessToken) {
+        model.manifestError = "未登录";
+      } else if (config) {
+        try {
+          const manifest = await fetchManifest(config);
+          const bindings = manifest.map((b) => ({
+            bindingId: b.bindingId,
+            collectorId: b.collectorId,
+            metric: b.metric,
+            kind: b.kind,
+            unit: b.unit,
+          }));
+          const { readings, statuses } = await runAllCollectors(bindings);
+          const byBinding = new Map(readings.map((r) => [r.bindingId, r]));
+          model.bindings = bindings.map((binding) => {
+            const reading = byBinding.get(binding.bindingId);
+            return {
+              collectorId: binding.collectorId,
+              metric: binding.metric,
+              kind: binding.kind,
+              unit: binding.unit,
+              used: reading?.usedValue ?? reading?.remainingValue,
+              limit: reading?.limitValue,
+              capturedAt: reading?.capturedAt,
+            };
+          });
+          const diagnostics = collectionDiagnostics(
+            bindings,
+            statuses,
+            readings.length,
+            listCollectors().map((collector) => collector.id),
+          );
+          model.collectorErrors = diagnostics.collectorErrors;
+          model.warnings = diagnostics.warnings;
+        } catch (cause) {
+          model.manifestError = cause instanceof Error ? cause.message : String(cause);
+        }
+      }
+
+      if (noSpend) {
+        model.spendError = "已用 --no-spend 跳过";
+      } else {
+        // 进度提示走 stderr：stdout 要能干净地重定向进文件或贴进 issue
+        process.stderr.write("正在读取 codeburn…\n");
+        try {
+          const ledger = await runCodeburnLedger();
+          if (ledger) {
+            model.spend = summarizeLedger(ledger);
+          } else {
+            model.spendError = "codeburn 导出为空或 schema 不符";
+          }
+        } catch (cause) {
+          model.spendError = (cause instanceof Error ? cause.message : String(cause)).slice(0, 160);
+        }
+      }
+
+      process.stdout.write(renderShow(model));
       return;
     }
     case "status": {
