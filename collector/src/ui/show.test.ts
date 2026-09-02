@@ -89,6 +89,14 @@ describe("renderShow", () => {
     expect(out).not.toContain("$0.00");
   });
 
+  it("points at a command that actually exists on PATH", () => {
+    // codeburn 是本包依赖，bin 垫片不在 PATH 上；提示里写裸 `codeburn today`
+    // 对没另行全局安装的人是句跑不通的建议（0.6.0 就是这么发出去的）
+    const out = render({ spend: summarizeLedger(ledger()) });
+    expect(out).toContain("conspectus-collect codeburn");
+    expect(out).not.toMatch(/(?<!conspectus-collect )codeburn today/);
+  });
+
   it("flags a non-USD codeburn display currency", () => {
     const out = render({
       spend: summarizeLedger({ ...ledger(), sourceCurrency: "GBP" }),

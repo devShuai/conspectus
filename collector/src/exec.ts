@@ -70,11 +70,16 @@ export async function runCli(
   return String(stdout);
 }
 
-/** 起长驻子进程（codex app-server）。 */
+/**
+ * 起长驻子进程（codex app-server），或把终端整个让给子进程（codeburn 透传）。
+ *
+ * `inherit` 是交互式 TUI 必需的：codeburn 要拿到真实 TTY 才能读方向键、按终端
+ * 尺寸重绘。用 pipe 接管的话它会认为自己不在终端里，退化成纯文本甚至直接不动。
+ */
 export function spawnCli(
   command: string,
   args: string[],
-  options: { stdio?: "pipe" | "ignore" } = {},
+  options: { stdio?: "pipe" | "ignore" | "inherit" } = {},
 ): ChildProcess {
   assertShellSafe(command, args);
   const stdio = options.stdio ?? "pipe";

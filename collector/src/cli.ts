@@ -12,7 +12,8 @@ import {
   reportReadings,
   type ReportResult,
 } from "./report.js";
-import { runCodeburnLedger } from "./collectors/codeburn-export.js";
+import { resolveCodeburnEntry, runCodeburnLedger } from "./collectors/codeburn-export.js";
+import { spawnCli } from "./exec.js";
 import { AGENT_VERSION } from "./version.js";
 import { renderShow, summarizeLedger, type ShowModel } from "./ui/show.js";
 import { enqueueFailedBatch, bufferStats } from "./buffer.js";
@@ -35,8 +36,41 @@ async function ask(label: string): Promise<string> {
   return answer;
 }
 
+/**
+ * 把参数原样透传给 codeburn 并让出终端。
+ *
+ * codeburn 是本包的**依赖**，它的 bin 垫片落在本包的 node_modules/.bin 里，
+ * npm 只为顶层包链接 bin —— 所以全局装了 conspectus-collect 之后，`codeburn`
+ * 这个命令在 PATH 上并不存在。show 的提示语原本直接写「codeburn today」，
+ * 对没有另行全局安装 codeburn 的人来说是句跑不通的建议。
+ *
+ * 这里用当前 node 直接跑它的 dist/cli.js（与 resolveCodeburnEntry 同一条路径），
+ * stdio 全继承，交互式 TUI 与退出码都照旧。
+ */
+async function passthroughCodeburn(args: string[]): Promise<void> {
+  const entry = resolveCodeburnEntry();
+  if (!entry) {
+    console.error("codeburn 依赖未安装；重新安装 @devshuai/conspectus-collect 即可带上它");
+    process.exitCode = 1;
+    return;
+  }
+  const child = spawnCli(process.execPath, [entry, ...args], { stdio: "inherit" });
+  process.exitCode = await new Promise<number>((resolve) => {
+    child.on("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+    child.on("error", (error) => {
+      console.error("codeburn 启动失败:", error.message);
+      resolve(1);
+    });
+  });
+}
+
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+  // 必须在下面的 --diagnose 快捷方式之前：透传的参数属于 codeburn，不该被本 CLI 解释
+  if (command === "codeburn") {
+    await passthroughCodeburn(args);
+    return;
+  }
   if (command === "diagnose" || args.includes("--diagnose")) {
     console.log(JSON.stringify(await runDiagnose(), null, 2));
     return;

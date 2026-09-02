@@ -17,8 +17,9 @@ import {
  * 渲染是**纯函数**：模型进、字符串数组出，不碰网络也不碰文件。数据采集在
  * cli.ts 那侧完成 —— 这样表格对齐、脱敏、降级分支都能直接单测，不用起服务。
  *
- * 只做汇总，不做明细。消耗的逐条钻取交给 codeburn 自己的 TUI（`codeburn`、
- * `codeburn today`），这里重复实现一遍既是浪费，也会两边算法漂移。本命令
+ * 只做汇总，不做明细。消耗的逐条钻取交给 codeburn 自己的 TUI，经
+ * `conspectus-collect codeburn …` 透传（codeburn 是本包依赖，不在 PATH 上，
+ * 直接敲 `codeburn` 跑不起来）。这里重复实现一遍既是浪费，也会两边算法漂移。本命令
  * 独有的价值在上半部分：哪些 binding 在 manifest 里、本轮各自采到什么、
  * 没采到是为什么、还有多少积在缓冲区没发出去。
  */
@@ -331,7 +332,7 @@ function spendSection(model: ShowModel, colors: Palette, width: number): string[
   }
 
   lines.push(
-    "  " + colors.dim(`按日聚合 ${number(spend.dayRows)} 行。逐条明细看 codeburn（codeburn today / codeburn web）。`),
+    "  " + colors.dim(`按日聚合 ${number(spend.dayRows)} 行。逐条明细：conspectus-collect codeburn today / … web`),
   );
   return lines;
 }
