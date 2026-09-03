@@ -13,9 +13,15 @@ import {
   type ReportResult,
 } from "./report.js";
 import { resolveCodeburnEntry, runCodeburnLedger } from "./collectors/codeburn-export.js";
-import { spawnCli } from "./exec.js";
+import { runCli, spawnCli } from "./exec.js";
 import { AGENT_VERSION } from "./version.js";
 import { renderShow, summarizeLedger, type ShowModel } from "./ui/show.js";
+import {
+  isOwnCommand,
+  parseCodeburnCommands,
+  renderHelp,
+  type CommandEntry,
+} from "./ui/help.js";
 import { enqueueFailedBatch, bufferStats } from "./buffer.js";
 import { runDiagnose } from "./diagnose.js";
 import { listCollectors } from "./collectors/registry.js";
@@ -47,7 +53,7 @@ async function ask(label: string): Promise<string> {
  * 这里用当前 node 直接跑它的 dist/cli.js（与 resolveCodeburnEntry 同一条路径），
  * stdio 全继承，交互式 TUI 与退出码都照旧。
  */
-async function passthroughCodeburn(args: string[]): Promise<void> {
+async function passthroughCodeburn(args: string[], merged = false): Promise<void> {
   const entry = resolveCodeburnEntry();
   if (!entry) {
     console.error("codeburn 依赖未安装；重新安装 @devshuai/conspectus-collect 即可带上它");
@@ -55,20 +61,58 @@ async function passthroughCodeburn(args: string[]): Promise<void> {
     return;
   }
   const child = spawnCli(process.execPath, [entry, ...args], { stdio: "inherit" });
-  process.exitCode = await new Promise<number>((resolve) => {
-    child.on("exit", (code, signal) => resolve(code ?? (signal ? 1 : 0)));
+  const code = await new Promise<number>((resolve) => {
+    child.on("exit", (exitCode, signal) => resolve(exitCode ?? (signal ? 1 : 0)));
     child.on("error", (error) => {
       console.error("codeburn 启动失败:", error.message);
       resolve(1);
     });
   });
+  // 合并调度下拼错命令时，codeburn 会拿它当默认 report 的参数，报出一句提到
+  // 「report」的错 —— 而用户根本没敲过 report。补一句指路，免得对着看不懂的
+  // 报错发愣。显式的 `codeburn …` 调用不加，那种情况下用户知道自己在调它。
+  if (code !== 0 && merged) {
+    console.error(`
+（${args[0]} 被当作 codeburn 命令执行；conspectus-collect -h 可看全部命令）`);
+  }
+  process.exitCode = code;
+}
+
+/**
+ * 取 codeburn 的命令表，供 -h 展示。失败返回 null —— 帮助页少一段，也好过因为
+ * 解析别人的帮助文本失败就让 -h 整个打不开。
+ */
+async function codeburnCommands(): Promise<CommandEntry[] | null> {
+  const entry = resolveCodeburnEntry();
+  if (!entry) return [];
+  try {
+    return parseCodeburnCommands(await runCli(process.execPath, [entry, "--help"], 15_000));
+  } catch {
+    return null;
+  }
 }
 
 async function main(): Promise<void> {
   const [command, ...args] = process.argv.slice(2);
+
+  if (command === undefined || command === "-h" || command === "--help" || command === "help") {
+    process.stdout.write(renderHelp(AGENT_VERSION, await codeburnCommands()));
+    return;
+  }
+  if (command === "-V" || command === "--version") {
+    console.log(AGENT_VERSION);
+    return;
+  }
   // 必须在下面的 --diagnose 快捷方式之前：透传的参数属于 codeburn，不该被本 CLI 解释
   if (command === "codeburn") {
     await passthroughCodeburn(args);
+    return;
+  }
+  // 命名空间合并：不是本包的命令就交给 codeburn（`conspectus-collect today`）。
+  // 不在这里查 codeburn 的命令表 —— 查表要多起一个进程，且表取不到时会把本来
+  // 能跑的命令挡下；未知命令交给 codeburn 自己报错即可。
+  if (!isOwnCommand(command)) {
+    await passthroughCodeburn([command, ...args], true);
     return;
   }
   if (command === "diagnose" || args.includes("--diagnose")) {
@@ -314,9 +358,9 @@ async function main(): Promise<void> {
       return;
     }
     default:
-      console.log(
-        "Usage: conspectus-collect <configure|login [--replace-device]|status|run [--dry-run]|diagnose|logout>",
-      );
+      // isOwnCommand 已拦下所有非本包命令，走到这里说明 OWN_COMMANDS 列了一个
+      // switch 没实现的命令 —— 是本包自身的疏漏，不是用户输错。
+      console.error(`未实现的命令: ${command}；conspectus-collect -h 看全部命令`);
       process.exitCode = 1;
   }
 }
